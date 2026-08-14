@@ -77,11 +77,13 @@ on:
         required: false
         type: string
         default: '.'
-      tox_dir:
-        description: 'Directory holding the documentation tox file'
+      tox_file:
+        description: >-
+          Path to the tox file holding the documentation environments;
+          empty searches docs/tox.ini then tox.ini
         required: false
         type: string
-        default: 'docs'
+        default: ''
       docs_tox_env:
         description: 'Tox environment that builds the documentation'
         required: false
@@ -276,13 +278,19 @@ jobs:
         shell: bash
         env:
           PATH_PREFIX: ${{ inputs.path_prefix }}
-          TOX_DIR: ${{ inputs.tox_dir }}
+          TOX_FILE: ${{ inputs.tox_file }}
         run: |
           # Require relative, non-traversing paths: later jobs cd into
           # them, so an absolute path or a .. segment could escape the
           # checkout. A single trailing slash is tolerated.
           error=0
-          for entry in "path_prefix=${PATH_PREFIX}" "tox_dir=${TOX_DIR}"; do
+          if [ -z "${PATH_PREFIX}" ]; then
+            echo "::error::path_prefix cannot be empty; use '.' for the root"
+            error=1
+          fi
+          # tox_file stays optional: an empty value asks the audit to
+          # locate the file rather than naming one.
+          for entry in "path_prefix=${PATH_PREFIX}" "tox_file=${TOX_FILE}"; do
             name="${entry%%=*}"; value="${entry#*=}"
             value="${value%/}"
             if [ "${value}" = '.' ] || [ -z "${value}" ]; then
@@ -328,6 +336,23 @@ jobs:
           esac
           exit "${error}"
 
+      - name: 'Require a ReadTheDocs token'
+        if: inputs.rtd_enabled
+        shell: bash
+        env:
+          RTD_TOKEN: ${{ secrets.RTD_TOKEN }}
+        run: |
+          # The ReadTheDocs jobs cannot reach the API without a token.
+          # Catching that here names the missing secret, rather than
+          # letting the failure surface inside the action later on.
+          if [ -z "${RTD_TOKEN}" ]; then
+            echo "::error::rtd_enabled is true but no RTD_TOKEN secret" \
+              "reached this workflow. Pass it from the caller, or set" \
+              "rtd_enabled to false."
+            exit 1
+          fi
+          echo 'ReadTheDocs token present ✅'
+
       - name: 'Require Gerrit project, branch and URL'
         if: inputs.gerrit_refspec != ''
         shell: bash
@@ -367,6 +392,8 @@ jobs:
     outputs:
       docs_python: ${{ steps.audit.outputs.docs_python }}
       passed: ${{ steps.audit.outputs.passed }}
+      tox_path: ${{ steps.audit.outputs.tox_path }}
+      tox_dir: ${{ steps.audit.outputs.tox_dir }}
     steps:
       - name: 'Load egress allow-list (block mode)'
         if: inputs.harden_runner_egress != 'audit'
@@ -421,7 +448,7 @@ jobs:
         continue-on-error: ${{ !inputs.audit_enabled }}
         with:
           path_prefix: ${{ inputs.path_prefix }}
-          tox_file: ${{ inputs.tox_dir }}/tox.ini
+          tox_file: ${{ inputs.tox_file }}
           required_files: ${{ inputs.audit_required_files }}
           forbidden_files: ${{ inputs.audit_forbidden_files }}
           build_os: ${{ inputs.audit_build_os }}
@@ -439,7 +466,8 @@ jobs:
       ${{ !cancelled()
           && needs.audit.result == 'success'
           && inputs.mode == 'verify'
-          && inputs.docs_enabled }}
+          && inputs.docs_enabled
+          && needs.audit.outputs.tox_path != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -507,7 +535,7 @@ jobs:
         # yamllint disable-line rule:line-length
         uses: lfreleng-actions/tox-run-action@9a4e2f4a9abddb5c674b8e0debb6d2a1318b7b7f  # v0.1.2
         with:
-          path_prefix: ${{ inputs.path_prefix }}/${{ inputs.tox_dir }}
+          path_prefix: ${{ needs.audit.outputs.tox_dir }}
           tox-envs: ${{ inputs.docs_tox_env }}
           python-version: ${{ needs.audit.outputs.docs_python }}
 
@@ -518,7 +546,8 @@ jobs:
       ${{ !cancelled()
           && needs.audit.result == 'success'
           && inputs.mode == 'verify'
-          && inputs.linkcheck_enabled }}
+          && inputs.linkcheck_enabled
+          && needs.audit.outputs.tox_path != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -565,13 +594,16 @@ jobs:
         # yamllint disable-line rule:line-length
         uses: tlylt/install-graphviz@b2201200d85f06f0189cb74d9b69208504cf12cd  # v1.0.0
 
+      # An expression on continue-on-error fails template evaluation
+      # here, so the step always tolerates a failure and the steps below
+      # decide what it means.
       - name: 'Check links'
         id: linkcheck
-        continue-on-error: ${{ inputs.linkcheck_advisory }}
+        continue-on-error: true
         # yamllint disable-line rule:line-length
         uses: lfreleng-actions/tox-run-action@9a4e2f4a9abddb5c674b8e0debb6d2a1318b7b7f  # v0.1.2
         with:
-          path_prefix: ${{ inputs.path_prefix }}/${{ inputs.tox_dir }}
+          path_prefix: ${{ needs.audit.outputs.tox_dir }}
           tox-envs: ${{ inputs.linkcheck_tox_env }}
           python-version: ${{ needs.audit.outputs.docs_python }}
 
@@ -581,15 +613,27 @@ jobs:
         shell: bash
         run: |
           # Report advisory outcome
-          message='The link check reported failures. External sites
-          increasingly refuse automated requests, so this often reflects
-          another site bot policy rather than a fault in this change.
-          Set linkcheck_advisory to false to make these failures block.'
+          # Built with double quotes so the apostrophe needs no escaping.
+          message="The link check reported failures. External sites"
+          message="${message} increasingly refuse automated requests, so this"
+          message="${message} often reflects another site's bot policy rather"
+          message="${message} than a fault in this change. Set"
+          message="${message} linkcheck_advisory to false to make these"
+          message="${message} failures block."
           echo "::warning title=Link check failed (advisory)::${message}"
           {
             echo '> [!WARNING]'
             echo "> ${message}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 'Enforce link check result'
+        # yamllint disable-line rule:line-length
+        if: ${{ !inputs.linkcheck_advisory && steps.linkcheck.outcome == 'failure' }}
+        shell: bash
+        run: |
+          # Enforce link check result
+          echo "::error::The link check failed and linkcheck_advisory is false"
+          exit 1
 
   readthedocs:
     name: 'ReadTheDocs'
@@ -640,7 +684,8 @@ jobs:
           gerrit_project: ${{ inputs.gerrit_project }}
           # yamllint disable-line rule:line-length
           gerrit_url: ${{ inputs.gerrit_url != '' && inputs.gerrit_url || vars.GERRIT_URL }}
-          branch: ${{ inputs.gerrit_branch }}
+          # yamllint disable-line rule:line-length
+          branch: ${{ inputs.gerrit_branch != '' && inputs.gerrit_branch || (inputs.ref != '' && inputs.ref || github.ref_name) }}
           default_branch: ${{ inputs.rtd_default_branch }}
           project: ${{ inputs.rtd_project }}
           parent_project: ${{ inputs.rtd_parent_project }}

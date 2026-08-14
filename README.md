@@ -45,9 +45,11 @@ verify:  audit -> { docs | linkcheck | readthedocs }
 merge:   audit -> readthedocs
 ```
 
-The audit resolves the documentation Python version and passes it to the
-jobs that follow, so the local build and the published build use the same
-interpreter.
+The audit resolves the documentation Python version and the location of
+the tox file, then passes both to the jobs that follow. Both builds then
+use the same interpreter, and the build runs from wherever the project
+keeps its documentation environments: `docs/tox.ini` where one exists,
+otherwise `tox.ini` at the root.
 
 ## Usage
 

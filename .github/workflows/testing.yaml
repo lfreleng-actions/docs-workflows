@@ -49,9 +49,9 @@ jobs:
       required_files: 'docs/index.rst'
 
   # The full pipeline in verify mode against a real documentation
-  # project. lftools-uv ships docs/tox.ini with docs and docs-linkcheck
-  # environments, so this exercises the audit, the Python resolution and
-  # the tox build together.
+  # project. lftools-uv keeps its docs and docs-linkcheck environments in
+  # the root tox.ini rather than docs/tox.ini, so this also proves the
+  # workflow follows wherever the audit locates them.
   verify:
     name: 'Verify'
     permissions:

@@ -58,11 +58,13 @@ on:
         required: false
         type: string
         default: '.'
-      tox_dir:
-        description: 'Directory holding the documentation tox file'
+      tox_file:
+        description: >-
+          Path to the tox file holding the documentation environments;
+          empty searches docs/tox.ini then tox.ini
         required: false
         type: string
-        default: 'docs'
+        default: ''
 
       # --- Policy ---
       required_files:
@@ -129,6 +131,9 @@ on:
       findings_json:
         description: 'Complete audit report as a JSON string'
         value: ${{ jobs.audit.outputs.findings_json }}
+      tox_path:
+        description: 'Path of the tox file the audit inspected'
+        value: ${{ jobs.audit.outputs.tox_path }}
 
 permissions: {}
 
@@ -143,6 +148,7 @@ jobs:
       passed: ${{ steps.audit.outputs.passed }}
       docs_python: ${{ steps.audit.outputs.docs_python }}
       findings_json: ${{ steps.audit.outputs.findings_json }}
+      tox_path: ${{ steps.audit.outputs.tox_path }}
     steps:
       - name: 'Load egress allow-list (block mode)'
         if: inputs.harden_runner_egress != 'audit'
@@ -193,7 +199,7 @@ jobs:
         uses: lfreleng-actions/rtd-config-audit-action@b32b1d2189612fbc530ca03b6ae86c98230e4f7b  # v0.0.1
         with:
           path_prefix: ${{ inputs.path_prefix }}
-          tox_file: ${{ inputs.tox_dir }}/tox.ini
+          tox_file: ${{ inputs.tox_file }}
           required_files: ${{ inputs.required_files }}
           forbidden_files: ${{ inputs.forbidden_files }}
           build_os: ${{ inputs.build_os }}
