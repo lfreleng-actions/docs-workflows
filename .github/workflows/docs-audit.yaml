@@ -1,0 +1,204 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 The Linux Foundation
+
+# Reusable ReadTheDocs configuration audit.
+#
+# Checks a repository's documentation setup for policy compliance and
+# reports the Python version its build should use, without building
+# anything or contacting ReadTheDocs. Suits a repository that wants the
+# policy check alone, or one adopting the checks before it adopts the
+# full pipeline.
+#
+# Projects running the whole pipeline should call docs-build.yaml
+# instead, which performs this audit as its first job.
+name: '[R] Documentation Audit'
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_call:
+    inputs:
+      # --- Checkout target (defaults to the calling repository) ---
+      repository:
+        description: 'Repository to check out (owner/name)'
+        required: false
+        type: string
+        default: ''
+      ref:
+        description: 'Branch/tag/SHA to check out (empty = default branch)'
+        required: false
+        type: string
+        default: ''
+
+      # --- Gerrit-aware checkout (empty unless dispatched via Gerrit) ---
+      gerrit_refspec:
+        description: 'Gerrit refspec of the change under test'
+        required: false
+        type: string
+        default: ''
+      gerrit_project:
+        description: 'Gerrit project name'
+        required: false
+        type: string
+        default: ''
+      gerrit_branch:
+        description: 'Gerrit branch the change targets'
+        required: false
+        type: string
+        default: ''
+      gerrit_url:
+        description: 'Gerrit server URL (falls back to the GERRIT_URL variable)'
+        required: false
+        type: string
+        default: ''
+
+      # --- Project layout ---
+      path_prefix:
+        description: 'Path to the project root directory'
+        required: false
+        type: string
+        default: '.'
+      tox_dir:
+        description: 'Directory holding the documentation tox file'
+        required: false
+        type: string
+        default: 'docs'
+
+      # --- Policy ---
+      required_files:
+        description: 'Files the project must ship (newline or comma separated)'
+        required: false
+        type: string
+        default: ''
+      forbidden_files:
+        description: 'Files the project must not ship'
+        required: false
+        type: string
+        default: ''
+      build_os:
+        description: 'Expected build.os value; empty accepts any'
+        required: false
+        type: string
+        default: ''
+      python_version:
+        description: 'Expected build.tools.python value; empty accepts any'
+        required: false
+        type: string
+        default: ''
+      eol_behaviour:
+        description: 'End-of-life Python handling: warn, fail or ignore'
+        required: false
+        type: string
+        default: 'warn'
+      linkcheck_policy:
+        description: "Handling of '-W' on a linkcheck builder"
+        required: false
+        type: string
+        default: 'warn'
+      require_sphinx_strict:
+        description: "Expect '-W' on documentation builds"
+        required: false
+        type: boolean
+        default: false
+      fail_on_warning:
+        description: 'Fail when the audit reports warnings'
+        required: false
+        type: boolean
+        default: false
+
+      # --- Runner hardening ---
+      harden_runner_egress:
+        description: "Harden-runner egress policy: 'block' or 'audit'"
+        required: false
+        type: string
+        default: 'block'
+      harden_runner_allowlist:
+        description: 'Out-of-band harden-runner allow-list configuration'
+        required: false
+        type: string
+        # yamllint disable-line rule:line-length
+        default: 'lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@d43a857514f81ce2af4230aca16e179ef96148d8'  # v0.13.0
+
+    outputs:
+      passed:
+        description: 'Whether the audit completed without a failing finding'
+        value: ${{ jobs.audit.outputs.passed }}
+      docs_python:
+        description: 'Python version the documentation build should use'
+        value: ${{ jobs.audit.outputs.docs_python }}
+      findings_json:
+        description: 'Complete audit report as a JSON string'
+        value: ${{ jobs.audit.outputs.findings_json }}
+
+permissions: {}
+
+jobs:
+  audit:
+    name: 'Configuration Audit'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    outputs:
+      passed: ${{ steps.audit.outputs.passed }}
+      docs_python: ${{ steps.audit.outputs.docs_python }}
+      findings_json: ${{ steps.audit.outputs.findings_json }}
+    steps:
+      - name: 'Load egress allow-list (block mode)'
+        if: inputs.harden_runner_egress != 'audit'
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
+        with:
+          config: ${{ inputs.harden_runner_allowlist }}
+      - name: 'Harden runner (block)'
+        if: inputs.harden_runner_egress != 'audit'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
+      - name: 'Harden runner (audit)'
+        if: inputs.harden_runner_egress == 'audit'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'audit'
+
+      - name: 'Checkout Gerrit change'
+        if: inputs.gerrit_refspec != ''
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/checkout-gerrit-change-action@f87b90a3370e62dad310797fedc7fd3700c75832  # v1.0.2
+        with:
+          gerrit-refspec: ${{ inputs.gerrit_refspec }}
+          gerrit-project: ${{ inputs.gerrit_project }}
+          # yamllint disable-line rule:line-length
+          gerrit-url: ${{ inputs.gerrit_url != '' && inputs.gerrit_url || vars.GERRIT_URL }}
+          delay: '0s'
+          ref: refs/heads/${{ inputs.gerrit_branch }}
+          submodules: 'true'
+      - name: 'Checkout repository'
+        if: inputs.gerrit_refspec == ''
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+          submodules: 'true'
+          persist-credentials: false
+
+      - name: 'Audit ReadTheDocs configuration'
+        id: audit
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/rtd-config-audit-action@b32b1d2189612fbc530ca03b6ae86c98230e4f7b  # v0.0.1
+        with:
+          path_prefix: ${{ inputs.path_prefix }}
+          tox_file: ${{ inputs.tox_dir }}/tox.ini
+          required_files: ${{ inputs.required_files }}
+          forbidden_files: ${{ inputs.forbidden_files }}
+          build_os: ${{ inputs.build_os }}
+          python_version: ${{ inputs.python_version }}
+          eol_behaviour: ${{ inputs.eol_behaviour }}
+          linkcheck_policy: ${{ inputs.linkcheck_policy }}
+          require_sphinx_strict: ${{ inputs.require_sphinx_strict }}
+          fail_on_warning: ${{ inputs.fail_on_warning }}

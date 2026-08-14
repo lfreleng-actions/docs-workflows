@@ -1,0 +1,650 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 The Linux Foundation
+
+# Reusable documentation pipeline for ReadTheDocs projects.
+#
+# One workflow serves both lanes. The 'verify' mode audits the
+# configuration, builds the documentation locally with tox and probes
+# ReadTheDocs without changing anything, which suits a patchset check.
+# The 'merge' mode audits, then publishes: it creates the ReadTheDocs
+# project when absent, attaches it to the umbrella project, sets the
+# landing version and triggers a build.
+#
+# The lanes previously lived in two separate workflows that shared most
+# of their body. They drifted, and in August 2026 the drift broke every
+# documentation merge across ONAP: the verify copy had moved off an
+# end-of-life Python while the merge copy had not. A single file with a
+# mode input removes the class of failure.
+#
+# Job graph (-> denotes sequence, { } run in parallel):
+#   verify: audit -> { docs | linkcheck | readthedocs }
+#   merge:  audit -> readthedocs
+#
+# Call this from a thin caller workflow; see examples/docs-build/ for
+# both a plain GitHub-native caller and a Gerrit-wrapped caller. Gerrit
+# voting belongs in the caller, so this workflow never needs a Gerrit
+# SSH key.
+name: '[R] Documentation Build'
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_call:
+    inputs:
+      # --- Lane ---
+      mode:
+        description: "Lane to run: 'verify' checks, 'merge' publishes"
+        required: true
+        type: string
+
+      # --- Checkout target (defaults to the calling repository) ---
+      repository:
+        description: 'Repository to check out (owner/name)'
+        required: false
+        type: string
+        default: ''
+      ref:
+        description: 'Branch/tag/SHA to check out (empty = default branch)'
+        required: false
+        type: string
+        default: ''
+
+      # --- Gerrit-aware checkout (empty unless dispatched via Gerrit) ---
+      gerrit_refspec:
+        description: 'Gerrit refspec of the change under test'
+        required: false
+        type: string
+        default: ''
+      gerrit_project:
+        description: 'Gerrit project name'
+        required: false
+        type: string
+        default: ''
+      gerrit_branch:
+        description: 'Gerrit branch the change targets'
+        required: false
+        type: string
+        default: ''
+      gerrit_url:
+        description: 'Gerrit server URL (falls back to the GERRIT_URL variable)'
+        required: false
+        type: string
+        default: ''
+
+      # --- Project layout ---
+      path_prefix:
+        description: 'Path to the project root directory'
+        required: false
+        type: string
+        default: '.'
+      tox_dir:
+        description: 'Directory holding the documentation tox file'
+        required: false
+        type: string
+        default: 'docs'
+      docs_tox_env:
+        description: 'Tox environment that builds the documentation'
+        required: false
+        type: string
+        default: 'docs'
+      linkcheck_tox_env:
+        description: 'Tox environment that checks external links'
+        required: false
+        type: string
+        default: 'docs-linkcheck'
+
+      # --- Documentation build ---
+      docs_enabled:
+        description: 'Run the local documentation build (verify mode)'
+        required: false
+        type: boolean
+        default: true
+      linkcheck_enabled:
+        description: 'Run the link check (verify mode)'
+        required: false
+        type: boolean
+        default: true
+      linkcheck_advisory:
+        description: >-
+          Report link-check failures without failing the workflow.
+          External sites increasingly refuse automated requests, so a
+          broken link often reflects another site's bot policy rather
+          than a fault in the change under review.
+        required: false
+        type: boolean
+        default: true
+
+      # --- Configuration audit ---
+      audit_enabled:
+        description: 'Audit the ReadTheDocs configuration'
+        required: false
+        type: boolean
+        default: true
+      audit_required_files:
+        description: 'Files the project must ship (newline or comma separated)'
+        required: false
+        type: string
+        default: ''
+      audit_forbidden_files:
+        description: 'Files the project must not ship'
+        required: false
+        type: string
+        default: ''
+      audit_build_os:
+        description: 'Expected build.os value; empty accepts any'
+        required: false
+        type: string
+        default: ''
+      audit_python_version:
+        description: 'Expected build.tools.python value; empty accepts any'
+        required: false
+        type: string
+        default: ''
+      audit_eol_behaviour:
+        description: "End-of-life Python handling: warn, fail or ignore"
+        required: false
+        type: string
+        default: 'warn'
+      audit_linkcheck_policy:
+        description: "Handling of '-W' on a linkcheck builder"
+        required: false
+        type: string
+        default: 'warn'
+      audit_fail_on_warning:
+        description: 'Fail the audit job when it reports warnings'
+        required: false
+        type: boolean
+        default: false
+
+      # --- ReadTheDocs ---
+      rtd_enabled:
+        description: 'Talk to the ReadTheDocs API'
+        required: false
+        type: boolean
+        default: true
+      rtd_project:
+        description: 'ReadTheDocs project slug; empty derives one'
+        required: false
+        type: string
+        default: ''
+      rtd_parent_project:
+        description: 'Umbrella project slug; empty derives one'
+        required: false
+        type: string
+        default: ''
+      rtd_parent_suffix:
+        description: 'Suffix appended to the umbrella name for its docs project'
+        required: false
+        type: string
+        default: 'doc'
+      rtd_project_overrides:
+        description: "Newline or comma separated 'from=to' slug rewrites"
+        required: false
+        type: string
+        default: ''
+      rtd_default_version:
+        description: 'Version ReadTheDocs serves as the landing page'
+        required: false
+        type: string
+        default: 'latest'
+      rtd_default_branch:
+        description: >-
+          Branch ReadTheDocs publishes as the default version; empty
+          accepts master or main
+        required: false
+        type: string
+        default: ''
+      lftools_version:
+        description: 'Version of lftools-uv the ReadTheDocs action runs'
+        required: false
+        type: string
+        default: '0.5.3'
+
+      # --- Runner hardening ---
+      harden_runner_egress:
+        description: "Harden-runner egress policy: 'block' or 'audit'"
+        required: false
+        type: string
+        default: 'block'
+      harden_runner_allowlist:
+        description: 'Out-of-band harden-runner allow-list configuration'
+        required: false
+        type: string
+        # yamllint disable-line rule:line-length
+        default: 'lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@d43a857514f81ce2af4230aca16e179ef96148d8'  # v0.13.0
+
+      # --- Timeouts ---
+      docs_timeout_minutes:
+        description: 'Timeout for the documentation build job'
+        required: false
+        type: number
+        default: 30
+      rtd_timeout_minutes:
+        description: 'Timeout for the ReadTheDocs job'
+        required: false
+        type: number
+        default: 45
+
+    secrets:
+      RTD_TOKEN:
+        description: 'ReadTheDocs API token'
+        required: false
+
+    outputs:
+      docs_python:
+        description: 'Python version the documentation build used'
+        value: ${{ jobs.audit.outputs.docs_python }}
+      audit_passed:
+        description: 'Whether the configuration audit passed'
+        value: ${{ jobs.audit.outputs.passed }}
+      documentation_url:
+        description: 'URL of the published documentation'
+        value: ${{ jobs.readthedocs.outputs.documentation_url }}
+
+permissions: {}
+
+jobs:
+  validate:
+    name: 'Validate Workflow Inputs'
+    # Fails fast with a clear message on invalid workflow inputs: the
+    # lane, the project paths and the Gerrit parameters (when
+    # gerrit_refspec arrives without the project, branch and URL the
+    # Gerrit checkout also requires). Every other job depends on this,
+    # so invalid inputs stop the pipeline early and cleanly.
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 2
+    steps:
+      - name: 'Validate mode input'
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          # The lane drives which jobs run, so an unknown value would
+          # silently skip the work the caller asked for.
+          case "${MODE}" in
+            verify|merge) ;;
+            *)
+              echo "::error::Invalid mode input: ${MODE}" \
+                "(expected verify or merge)"
+              exit 1
+              ;;
+          esac
+          echo "Mode ${MODE} validated ✅"
+
+      - name: 'Validate path inputs'
+        shell: bash
+        env:
+          PATH_PREFIX: ${{ inputs.path_prefix }}
+          TOX_DIR: ${{ inputs.tox_dir }}
+        run: |
+          # Require relative, non-traversing paths: later jobs cd into
+          # them, so an absolute path or a .. segment could escape the
+          # checkout. A single trailing slash is tolerated.
+          error=0
+          for entry in "path_prefix=${PATH_PREFIX}" "tox_dir=${TOX_DIR}"; do
+            name="${entry%%=*}"; value="${entry#*=}"
+            value="${value%/}"
+            if [ "${value}" = '.' ] || [ -z "${value}" ]; then
+              continue
+            fi
+            if [[ ! "${value}" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] \
+              || [[ "${value}" =~ (^|/)\.\.(/|$) ]]; then
+              echo "::error::Invalid ${name} input: ${value}"
+              error=1
+            fi
+          done
+          exit "${error}"
+
+      - name: 'Validate policy inputs'
+        shell: bash
+        env:
+          EOL_BEHAVIOUR: ${{ inputs.audit_eol_behaviour }}
+          LINKCHECK_POLICY: ${{ inputs.audit_linkcheck_policy }}
+          EGRESS: ${{ inputs.harden_runner_egress }}
+        run: |
+          # These reach the audit action and harden-runner verbatim, so
+          # catching a typo here gives a readable message rather than a
+          # failure deep inside a composite action.
+          error=0
+          for entry in \
+            "audit_eol_behaviour=${EOL_BEHAVIOUR}" \
+            "audit_linkcheck_policy=${LINKCHECK_POLICY}"; do
+            name="${entry%%=*}"; value="${entry#*=}"
+            case "${value}" in
+              warn|fail|ignore) ;;
+              *)
+                echo "::error::Invalid ${name} input: ${value}"
+                error=1
+                ;;
+            esac
+          done
+          case "${EGRESS}" in
+            block|audit) ;;
+            *)
+              echo "::error::Invalid harden_runner_egress input: ${EGRESS}"
+              error=1
+              ;;
+          esac
+          exit "${error}"
+
+      - name: 'Require Gerrit project, branch and URL'
+        if: inputs.gerrit_refspec != ''
+        shell: bash
+        env:
+          GERRIT_PROJECT: ${{ inputs.gerrit_project }}
+          GERRIT_BRANCH: ${{ inputs.gerrit_branch }}
+          # yamllint disable-line rule:line-length
+          GERRIT_URL: ${{ inputs.gerrit_url != '' && inputs.gerrit_url || vars.GERRIT_URL }}
+        run: |
+          # gerrit_refspec is set, so the Gerrit checkout path runs and
+          # also requires gerrit_project, gerrit_branch and a resolvable
+          # Gerrit URL (the gerrit_url input or the GERRIT_URL variable).
+          missing=''
+          if [ -z "${GERRIT_PROJECT}" ]; then
+            missing="${missing} gerrit_project"
+          fi
+          if [ -z "${GERRIT_BRANCH}" ]; then
+            missing="${missing} gerrit_branch"
+          fi
+          if [ -z "${GERRIT_URL}" ]; then
+            missing="${missing} gerrit_url/GERRIT_URL"
+          fi
+          if [ -n "${missing}" ]; then
+            echo "::error::gerrit_refspec is set but missing:${missing}"
+            exit 1
+          fi
+          echo "Gerrit inputs validated ✅"
+
+  audit:
+    name: 'Configuration Audit'
+    needs: validate
+    if: ${{ !cancelled() && needs.validate.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    outputs:
+      docs_python: ${{ steps.audit.outputs.docs_python }}
+      passed: ${{ steps.audit.outputs.passed }}
+    steps:
+      - name: 'Load egress allow-list (block mode)'
+        if: inputs.harden_runner_egress != 'audit'
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
+        with:
+          config: ${{ inputs.harden_runner_allowlist }}
+      - name: 'Harden runner (block)'
+        if: inputs.harden_runner_egress != 'audit'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
+      - name: 'Harden runner (audit)'
+        if: inputs.harden_runner_egress == 'audit'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'audit'
+
+      - name: 'Checkout Gerrit change'
+        if: inputs.gerrit_refspec != ''
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/checkout-gerrit-change-action@f87b90a3370e62dad310797fedc7fd3700c75832  # v1.0.2
+        with:
+          gerrit-refspec: ${{ inputs.gerrit_refspec }}
+          gerrit-project: ${{ inputs.gerrit_project }}
+          # yamllint disable-line rule:line-length
+          gerrit-url: ${{ inputs.gerrit_url != '' && inputs.gerrit_url || vars.GERRIT_URL }}
+          delay: '0s'
+          ref: refs/heads/${{ inputs.gerrit_branch }}
+          submodules: 'true'
+      - name: 'Checkout repository'
+        if: inputs.gerrit_refspec == ''
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+          submodules: 'true'
+          persist-credentials: false
+
+      # Runs even when audit_enabled is false, because downstream jobs
+      # read docs_python from it. With the audit disabled the policy
+      # checks stay permissive and warnings never fail the job.
+      - name: 'Audit ReadTheDocs configuration'
+        id: audit
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/rtd-config-audit-action@b32b1d2189612fbc530ca03b6ae86c98230e4f7b  # v0.0.1
+        continue-on-error: ${{ !inputs.audit_enabled }}
+        with:
+          path_prefix: ${{ inputs.path_prefix }}
+          tox_file: ${{ inputs.tox_dir }}/tox.ini
+          required_files: ${{ inputs.audit_required_files }}
+          forbidden_files: ${{ inputs.audit_forbidden_files }}
+          build_os: ${{ inputs.audit_build_os }}
+          python_version: ${{ inputs.audit_python_version }}
+          eol_behaviour: ${{ inputs.audit_eol_behaviour }}
+          linkcheck_policy: ${{ inputs.audit_linkcheck_policy }}
+          fail_on_warning: ${{ inputs.audit_fail_on_warning }}
+
+  docs:
+    name: 'Documentation Build'
+    needs: audit
+    # The local build belongs to the verify lane. A merge publishes
+    # through ReadTheDocs, which performs its own build.
+    if: >-
+      ${{ !cancelled()
+          && needs.audit.result == 'success'
+          && inputs.mode == 'verify'
+          && inputs.docs_enabled }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: ${{ inputs.docs_timeout_minutes }}
+    steps:
+      - name: 'Load egress allow-list (block mode)'
+        if: inputs.harden_runner_egress != 'audit'
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
+        with:
+          config: ${{ inputs.harden_runner_allowlist }}
+      - name: 'Harden runner (block)'
+        if: inputs.harden_runner_egress != 'audit'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
+      - name: 'Harden runner (audit)'
+        if: inputs.harden_runner_egress == 'audit'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'audit'
+
+      - name: 'Checkout Gerrit change'
+        if: inputs.gerrit_refspec != ''
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/checkout-gerrit-change-action@f87b90a3370e62dad310797fedc7fd3700c75832  # v1.0.2
+        with:
+          gerrit-refspec: ${{ inputs.gerrit_refspec }}
+          gerrit-project: ${{ inputs.gerrit_project }}
+          # yamllint disable-line rule:line-length
+          gerrit-url: ${{ inputs.gerrit_url != '' && inputs.gerrit_url || vars.GERRIT_URL }}
+          delay: '0s'
+          ref: refs/heads/${{ inputs.gerrit_branch }}
+          submodules: 'true'
+      - name: 'Checkout repository'
+        if: inputs.gerrit_refspec == ''
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+          submodules: 'true'
+          persist-credentials: false
+
+      - name: 'Setup Python'
+        # yamllint disable-line rule:line-length
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: ${{ needs.audit.outputs.docs_python }}
+
+      # Sphinx renders inheritance and call graphs through graphviz.
+      # Installing it here, once, keeps it out of the tox environments:
+      # a project that installs it from inside tox races against itself
+      # when environments run in parallel, and dpkg refuses the second
+      # caller.
+      - name: 'Install graphviz'
+        # yamllint disable-line rule:line-length
+        uses: tlylt/install-graphviz@b2201200d85f06f0189cb74d9b69208504cf12cd  # v1.0.0
+
+      - name: 'Build documentation'
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/tox-run-action@9a4e2f4a9abddb5c674b8e0debb6d2a1318b7b7f  # v0.1.2
+        with:
+          path_prefix: ${{ inputs.path_prefix }}/${{ inputs.tox_dir }}
+          tox-envs: ${{ inputs.docs_tox_env }}
+          python-version: ${{ needs.audit.outputs.docs_python }}
+
+  linkcheck:
+    name: 'Link Check'
+    needs: audit
+    if: >-
+      ${{ !cancelled()
+          && needs.audit.result == 'success'
+          && inputs.mode == 'verify'
+          && inputs.linkcheck_enabled }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: ${{ inputs.docs_timeout_minutes }}
+    # A link check contacts whichever hosts the documentation links to,
+    # which no allow-list can enumerate ahead of time. This job runs in
+    # audit mode while every other job blocks.
+    steps:
+      - name: 'Harden runner (audit)'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'audit'
+
+      - name: 'Checkout Gerrit change'
+        if: inputs.gerrit_refspec != ''
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/checkout-gerrit-change-action@f87b90a3370e62dad310797fedc7fd3700c75832  # v1.0.2
+        with:
+          gerrit-refspec: ${{ inputs.gerrit_refspec }}
+          gerrit-project: ${{ inputs.gerrit_project }}
+          # yamllint disable-line rule:line-length
+          gerrit-url: ${{ inputs.gerrit_url != '' && inputs.gerrit_url || vars.GERRIT_URL }}
+          delay: '0s'
+          ref: refs/heads/${{ inputs.gerrit_branch }}
+          submodules: 'true'
+      - name: 'Checkout repository'
+        if: inputs.gerrit_refspec == ''
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
+          submodules: 'true'
+          persist-credentials: false
+
+      - name: 'Setup Python'
+        # yamllint disable-line rule:line-length
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: ${{ needs.audit.outputs.docs_python }}
+
+      - name: 'Install graphviz'
+        # yamllint disable-line rule:line-length
+        uses: tlylt/install-graphviz@b2201200d85f06f0189cb74d9b69208504cf12cd  # v1.0.0
+
+      - name: 'Check links'
+        id: linkcheck
+        continue-on-error: ${{ inputs.linkcheck_advisory }}
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/tox-run-action@9a4e2f4a9abddb5c674b8e0debb6d2a1318b7b7f  # v0.1.2
+        with:
+          path_prefix: ${{ inputs.path_prefix }}/${{ inputs.tox_dir }}
+          tox-envs: ${{ inputs.linkcheck_tox_env }}
+          python-version: ${{ needs.audit.outputs.docs_python }}
+
+      - name: 'Report advisory outcome'
+        # yamllint disable-line rule:line-length
+        if: ${{ inputs.linkcheck_advisory && steps.linkcheck.outcome == 'failure' }}
+        shell: bash
+        run: |
+          # Report advisory outcome
+          message='The link check reported failures. External sites
+          increasingly refuse automated requests, so this often reflects
+          another site bot policy rather than a fault in this change.
+          Set linkcheck_advisory to false to make these failures block.'
+          echo "::warning title=Link check failed (advisory)::${message}"
+          {
+            echo '> [!WARNING]'
+            echo "> ${message}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  readthedocs:
+    name: 'ReadTheDocs'
+    needs: audit
+    if: >-
+      ${{ !cancelled()
+          && needs.audit.result == 'success'
+          && inputs.rtd_enabled }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: ${{ inputs.rtd_timeout_minutes }}
+    outputs:
+      documentation_url: ${{ steps.readthedocs.outputs.documentation_url }}
+    steps:
+      - name: 'Load egress allow-list (block mode)'
+        if: inputs.harden_runner_egress != 'audit'
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
+        with:
+          config: ${{ inputs.harden_runner_allowlist }}
+      - name: 'Harden runner (block)'
+        if: inputs.harden_runner_egress != 'audit'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'block'
+          allowed-endpoints: >
+            ${{ env.CONNECTION_ALLOW_LIST }}
+      - name: 'Harden runner (audit)'
+        if: inputs.harden_runner_egress == 'audit'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'audit'
+
+      - name: 'Install uv'
+        # yamllint disable-line rule:line-length
+        uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d  # v10.0.0
+
+      - name: 'Verify or publish documentation'
+        id: readthedocs
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/rtd-build-action@ba48c6c4fd5093d0789c3bf2c63d1a6e9beae131  # v0.0.1
+        with:
+          mode: ${{ inputs.mode }}
+          rtd_token: ${{ secrets.RTD_TOKEN }}
+          gerrit_project: ${{ inputs.gerrit_project }}
+          # yamllint disable-line rule:line-length
+          gerrit_url: ${{ inputs.gerrit_url != '' && inputs.gerrit_url || vars.GERRIT_URL }}
+          branch: ${{ inputs.gerrit_branch }}
+          default_branch: ${{ inputs.rtd_default_branch }}
+          project: ${{ inputs.rtd_project }}
+          parent_project: ${{ inputs.rtd_parent_project }}
+          parent_suffix: ${{ inputs.rtd_parent_suffix }}
+          project_overrides: ${{ inputs.rtd_project_overrides }}
+          default_version: ${{ inputs.rtd_default_version }}
+          lftools_version: ${{ inputs.lftools_version }}

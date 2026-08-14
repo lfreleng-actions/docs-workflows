@@ -1,0 +1,43 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 The Linux Foundation
+
+# =============================================================================
+# EXAMPLE: GitHub-native caller for the standalone configuration audit
+# =============================================================================
+# Use this form to check documentation configuration without building
+# anything or contacting ReadTheDocs. A project running the whole pipeline
+# should call docs-build.yaml instead, which performs this audit first.
+#
+# The policy inputs below show the ONAP documentation rules expressed as
+# configuration. Omit them to check only what every project shares.
+# =============================================================================
+name: 'Documentation Audit'
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ['main']
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  audit:
+    permissions:
+      contents: read
+    # REPLACE the pinned SHA below with a docs-workflows release SHA.
+    # The all-zero SHA is a non-functional placeholder, NOT a real commit.
+    # yamllint disable-line rule:line-length
+    uses: lfreleng-actions/docs-workflows/.github/workflows/docs-audit.yaml@0000000000000000000000000000000000000000  # REPLACE: vX.Y.Z
+    with:
+      required_files: |
+        docs/index.rst
+        docs/conf.py
+        docs/requirements-docs.txt
+      forbidden_files: 'docs/conf.yaml'
+      build_os: 'ubuntu-24.04'

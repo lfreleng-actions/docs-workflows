@@ -1,33 +1,26 @@
 ---
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: 2025 The Linux Foundation
+# SPDX-FileCopyrightText: 2026 The Linux Foundation
 
-# Exercises the reusable workflow SKELETONS in this repository against
-# downstream fixture repositories, in parallel, to prove the generic
-# scaffolding (job graph, harden-runner wiring, dual checkout, artifact
-# plumbing, SBOM/Grype chain) functions end-to-end. The placeholder
-# build/test/audit/SBOM steps are language-agnostic, so the matrix runs
-# against fixtures of different languages by design.
+# Exercises the reusable workflows in this repository against a real
+# documentation project, to prove they function end to end.
 #
-# The reusable workflows are referenced by LOCAL path so this always
-# validates the current branch's workflows.
+# The workflows are referenced by LOCAL path so this always validates the
+# current branch.
 #
-# The build-test-release and merge skeletons are NOT self-tested here:
-# build-test-release requires a signed semver tag-push context (and
-# creates/promotes GitHub releases), and merge requires a merged-commit
-# context (and would exercise publish legs); neither is available or
-# safe on a pull request. Instantiating repos validate those through
-# their own release/merge cycles.
+# The ReadTheDocs legs stay disabled here. Reaching the API needs an
+# RTD_TOKEN a fork may not hold, and the merge lane would create and
+# build real ReadTheDocs projects, which a test run has no business
+# doing. The rtd-build-action repository covers that behaviour with its
+# own suite against an in-memory double, and ONAP exercises it for real
+# once it adopts these workflows.
 name: 'Testing 🧪'
 
 # yamllint disable-line rule:truthy
 on:
   workflow_dispatch:
   pull_request:
-    types: [opened, reopened, synchronize]
-    branches:
-      - main
-      - master
+    branches: ['main']
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -36,19 +29,72 @@ concurrency:
 permissions: {}
 
 jobs:
-  # Fixture repositories of different languages, fanned out in parallel
-  # via a matrix; the template placeholders run identically for both.
-  build-test:
-    name: 'Build/Test'
-    strategy:
-      fail-fast: false
-      matrix:
-        repository:
-          - 'lfreleng-actions/test-go-project'
-          - 'lfreleng-actions/test-node-project'
+  # The standalone audit against this repository, which ships a
+  # ReadTheDocs configuration and so exercises the discovery path.
+  audit:
+    name: 'Audit'
     permissions:
       contents: read
-      pull-requests: read  # repository-metadata-action queries PR data
-    uses: ./.github/workflows/build-test.yaml
+    uses: ./.github/workflows/docs-audit.yaml
+
+  # The audit expressed as policy, proving the inputs reach the action.
+  # This repository ships no docs/index.rst, so the required-files check
+  # must fail; the outcome job below asserts that.
+  audit-policy:
+    name: 'Audit With Policy'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/docs-audit.yaml
     with:
-      repository: ${{ matrix.repository }}
+      required_files: 'docs/index.rst'
+
+  # The full pipeline in verify mode against a real documentation
+  # project. lftools-uv ships docs/tox.ini with docs and docs-linkcheck
+  # environments, so this exercises the audit, the Python resolution and
+  # the tox build together.
+  verify:
+    name: 'Verify'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/docs-build.yaml
+    with:
+      mode: 'verify'
+      repository: 'lfreleng-actions/lftools-uv'
+      rtd_enabled: false
+
+  outcome:
+    name: 'Report Outcome'
+    if: ${{ always() }}
+    needs: [audit, audit-policy, verify]
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: 'Check results'
+        shell: bash
+        env:
+          AUDIT: ${{ needs.audit.result }}
+          POLICY: ${{ needs.audit-policy.result }}
+          VERIFY: ${{ needs.verify.result }}
+        run: |
+          # Check results
+          fail=0
+          if [ "${AUDIT}" != 'success' ]; then
+            echo "::error::Audit leg reported ${AUDIT}"
+            fail=1
+          fi
+          if [ "${VERIFY}" != 'success' ]; then
+            echo "::error::Verify leg reported ${VERIFY}"
+            fail=1
+          fi
+          # The policy leg names a file this repository does not ship,
+          # so success would mean required_files never reached the audit.
+          if [ "${POLICY}" != 'failure' ]; then
+            echo "::error::Policy leg reported ${POLICY}, expected failure"
+            fail=1
+          fi
+          if [ "${fail}" = '0' ]; then
+            echo 'All legs behaved as expected ✅'
+            echo 'All legs behaved as expected ✅' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "${fail}"
