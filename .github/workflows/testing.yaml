@@ -37,16 +37,18 @@ jobs:
       contents: read
     uses: ./.github/workflows/docs-audit.yaml
 
-  # The audit expressed as policy, proving the inputs reach the action.
-  # This repository ships no docs/index.rst, so the required-files check
-  # must fail; the outcome job below asserts that.
+  # Prove the policy inputs reach the audit action. Naming a build image
+  # that differs from the one this repository declares yields a warning
+  # rather than an error, so the leg proves the plumbing without turning
+  # a check red. Asserting on the finding is also stronger than asserting
+  # on a failure: it shows which input landed, not merely that one did.
   audit-policy:
     name: 'Audit With Policy'
     permissions:
       contents: read
     uses: ./.github/workflows/docs-audit.yaml
     with:
-      required_files: 'docs/index.rst'
+      build_os: 'ubuntu-24.04'
 
   # The full pipeline in verify mode against a real documentation
   # project. lftools-uv keeps its docs and docs-linkcheck environments in
@@ -75,6 +77,7 @@ jobs:
         env:
           AUDIT: ${{ needs.audit.result }}
           POLICY: ${{ needs.audit-policy.result }}
+          POLICY_FINDINGS: ${{ needs.audit-policy.outputs.findings_json }}
           VERIFY: ${{ needs.verify.result }}
         run: |
           # Check results
@@ -87,10 +90,17 @@ jobs:
             echo "::error::Verify leg reported ${VERIFY}"
             fail=1
           fi
-          # The policy leg names a file this repository does not ship,
-          # so success would mean required_files never reached the audit.
-          if [ "${POLICY}" != 'failure' ]; then
-            echo "::error::Policy leg reported ${POLICY}, expected failure"
+          if [ "${POLICY}" != 'success' ]; then
+            echo "::error::Policy leg reported ${POLICY}"
+            fail=1
+          fi
+          # The policy leg named a build image this repository does not
+          # declare, so the audit must have reported the mismatch. A
+          # silent pass would mean build_os never reached the action.
+          if ! printf '%s' "${POLICY_FINDINGS}" \
+            | grep -q 'build-os-mismatch'; then
+            echo '::error::Policy leg reported no build-os-mismatch finding;'
+            echo '::error::the build_os input did not reach the audit'
             fail=1
           fi
           if [ "${fail}" = '0' ]; then
