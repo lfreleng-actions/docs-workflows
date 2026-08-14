@@ -444,7 +444,7 @@ jobs:
       - name: 'Audit ReadTheDocs configuration'
         id: audit
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-config-audit-action@b32b1d2189612fbc530ca03b6ae86c98230e4f7b  # v0.0.1
+        uses: lfreleng-actions/rtd-config-audit-action@6546f9cca69838d78ed6eb0b5846e493796f5038  # v0.1.0
         continue-on-error: ${{ !inputs.audit_enabled }}
         with:
           path_prefix: ${{ inputs.path_prefix }}
