@@ -1,0 +1,44 @@
+---
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 The Linux Foundation
+
+# =============================================================================
+# EXAMPLE: GitHub-native caller for the reusable documentation workflow
+# =============================================================================
+# Use this form when GitHub is the source of truth (SCM) for your project.
+# Pull requests run the verify lane; a push to the default branch publishes.
+#
+# DEPLOYMENT NOTES:
+#   * Copy into .github/workflows/ and set the RTD_TOKEN secret.
+#   * Replace the pinned SHA with a docs-workflows release SHA.
+# =============================================================================
+name: 'Documentation'
+
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ['main']
+  push:
+    branches: ['main']
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  docs:
+    permissions:
+      contents: read
+    # REPLACE the pinned SHA below with a docs-workflows release SHA.
+    # The all-zero SHA is a non-functional placeholder, NOT a real commit.
+    # yamllint disable-line rule:line-length
+    uses: lfreleng-actions/docs-workflows/.github/workflows/docs-build.yaml@0000000000000000000000000000000000000000  # REPLACE: vX.Y.Z
+    with:
+      # A pull request checks the change; a push publishes it.
+      # yamllint disable-line rule:line-length
+      mode: ${{ github.event_name == 'push' && 'merge' || 'verify' }}
+    secrets:
+      RTD_TOKEN: ${{ secrets.RTD_TOKEN }}

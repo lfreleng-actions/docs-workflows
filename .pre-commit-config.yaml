@@ -106,7 +106,7 @@ repos:
       - id: basedpyright
 
   - repo: https://github.com/lfreleng-actions/gha-workflow-linter
-    rev: cec679e88cd818179079f52925ba80b9e6cb705c  # frozen: v1.2.3
+    rev: 228037b687dd4c3d6043eb9f359707d030be8222  # frozen: v1.4.0
     hooks:
       - id: gha-workflow-linter
 
