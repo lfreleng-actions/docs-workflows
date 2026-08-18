@@ -390,6 +390,7 @@ jobs:
       contents: read
     timeout-minutes: 10
     outputs:
+      config_found: ${{ steps.audit.outputs.config_found }}
       docs_python: ${{ steps.audit.outputs.docs_python }}
       passed: ${{ steps.audit.outputs.passed }}
       tox_path: ${{ steps.audit.outputs.tox_path }}
@@ -462,6 +463,48 @@ jobs:
           eol_behaviour: ${{ inputs.audit_eol_behaviour }}
           linkcheck_policy: ${{ inputs.audit_linkcheck_policy }}
           fail_on_warning: ${{ inputs.audit_fail_on_warning }}
+
+      # A skipped job shows no reason of its own, so state plainly why
+      # the ReadTheDocs job will not run, and what else that implies.
+      # A repository with no ReadTheDocs configuration publishes nothing
+      # through ReadTheDocs, whatever else it ships.
+      - name: 'Report absent documentation'
+        if: steps.audit.outputs.config_found != 'true'
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          TOX_PATH: ${{ steps.audit.outputs.tox_path }}
+        run: |
+          # Report absent documentation
+          set -euo pipefail
+
+          echo "::notice title=No ReadTheDocs configuration::This" \
+            "repository ships no .readthedocs.yaml, so the ReadTheDocs" \
+            "job skips."
+
+          # The backticks below open Markdown code spans in the job
+          # summary; they are not command substitution.
+          # shellcheck disable=SC2016
+          {
+            echo '### No ReadTheDocs configuration'
+            echo
+            echo 'This repository ships no `.readthedocs.yaml`, so the'
+            echo 'ReadTheDocs job skips and nothing publishes.'
+            echo
+            # The build and link check belong to the verify lane and
+            # gate on the tox file, so what else skips depends on both.
+            if [ "${MODE}" = 'merge' ]; then
+              echo 'The merge lane runs no other documentation job.'
+            elif [ -z "${TOX_PATH}" ]; then
+              echo 'It ships no tox file either, so the build and link'
+              echo 'check skip as well.'
+            else
+              printf 'The build and link check still run, from `%s`.\n' \
+                "${TOX_PATH}"
+            fi
+            echo
+            printf 'Mode: `%s`\n' "${MODE}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   docs:
     name: 'Documentation Build'
@@ -656,10 +699,21 @@ jobs:
   readthedocs:
     name: 'ReadTheDocs'
     needs: audit
+    # ReadTheDocs builds from .readthedocs.yaml held in the repository,
+    # so a repository without one publishes nothing. Worse, on a merge
+    # this job CREATES the ReadTheDocs project when it finds none, so an
+    # ungated run would register a project for a repository that has no
+    # documentation at all.
+    #
+    # The build and link check gate on tox_path for the same reason.
+    # This gates on the configuration instead, because ReadTheDocs reads
+    # that file rather than tox: a repository may carry one without the
+    # other.
     if: >-
       ${{ !cancelled()
           && needs.audit.result == 'success'
-          && inputs.rtd_enabled }}
+          && inputs.rtd_enabled
+          && needs.audit.outputs.config_found == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
