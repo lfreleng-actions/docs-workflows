@@ -51,6 +51,27 @@ use the same interpreter, and the build runs from wherever the project
 keeps its documentation environments: `docs/tox.ini` where one exists,
 otherwise `tox.ini` at the root.
 
+### Discovery gates the work
+
+The audit also reports whether the repository ships documentation at
+all, and every job after it gates on that finding:
+
+| Job           | Runs when                             |
+| ------------- | ------------------------------------- |
+| `docs`        | the audit found a tox file            |
+| `linkcheck`   | the audit found a tox file            |
+| `readthedocs` | the audit found a `.readthedocs.yaml` |
+
+The signals differ because the tools differ. The build and link check
+run tox; ReadTheDocs builds from `.readthedocs.yaml` held in the
+repository. A project may carry one without the other.
+
+This matters most on a merge. The ReadTheDocs job **creates** the
+project when it finds none, so running it against a repository with no
+documentation registers a project that can never build. A repository
+with no `.readthedocs.yaml` instead gets a note in the job summary
+naming which jobs skip and why.
+
 ## Usage
 
 Call from a thin caller workflow. See `examples/docs-build/` for a

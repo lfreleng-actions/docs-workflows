@@ -29,14 +29,23 @@ concurrency:
 permissions: {}
 
 jobs:
-  # Every checkout must name the repository under review. The action
-  # defaults to github.repository, which inside a reusable workflow
-  # names the caller: a central .github repository calling on behalf of
-  # another project would seed the tree from itself. That failed every
-  # ONAP patchset check until it was caught, so guard the shape rather
-  # than trusting review to spot a missing line.
-  checkout-inputs:
-    name: 'Checkout Inputs'
+  # Structural invariants that a live run cannot cheaply prove, each
+  # standing in for a defect that reached production:
+  #
+  #   * Every checkout names the repository under review. The action
+  #     defaults to github.repository, which inside a reusable workflow
+  #     names the caller, so a central .github repository would seed the
+  #     tree from itself. That failed every ONAP patchset check.
+  #
+  #   * Every documentation job first establishes that documentation
+  #     exists. The ReadTheDocs job creates a project when it finds
+  #     none, so an ungated merge registered one for a repository that
+  #     ships no documentation at all.
+  #
+  # Both need a live Gerrit change or a specific repository to
+  # reproduce, so guard the shape instead.
+  workflow-shape:
+    name: 'Workflow Shape'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,6 +86,53 @@ jobs:
           fi
           exit "$fail"
 
+      # Every job that acts on documentation must first establish that
+      # documentation exists. The ReadTheDocs job CREATES a project when
+      # it finds none, so an ungated merge registers a project for a
+      # repository that ships nothing. That happened to onap/.github,
+      # which carries no .readthedocs.yaml: the merge lane derived the
+      # slug 'onap-.github' and ReadTheDocs rejected it with HTTP 400.
+      # Assert the gates rather than trusting review to keep them.
+      - name: 'Every documentation job gates on discovery'
+        shell: bash
+        run: |
+          # Every documentation job gates on discovery
+          python3 - <<'GATES'
+          import re, sys, yaml
+
+          wf = yaml.safe_load(
+              open(".github/workflows/docs-build.yaml", encoding="utf-8"))
+          jobs = wf["jobs"]
+
+          # ReadTheDocs publishes from .readthedocs.yaml, so it gates on
+          # the config. The local build and link check run tox, so they
+          # gate on the tox file. A repository may carry one without the
+          # other, which is why the signals differ.
+          expected = {
+              "readthedocs": "needs.audit.outputs.config_found == 'true'",
+              "docs": "needs.audit.outputs.tox_path != ''",
+              "linkcheck": "needs.audit.outputs.tox_path != ''",
+          }
+
+          failures = 0
+          for job, needle in expected.items():
+              condition = " ".join(str(jobs[job].get("if", "")).split())
+              if needle in condition:
+                  print(f"{job}: gates on {needle}")
+                  continue
+              print(f"::error::Job '{job}' must gate on \"{needle}\"; "
+                    f"found: {condition or '(no condition)'}")
+              failures += 1
+
+          if "config_found" not in jobs["audit"].get("outputs", {}):
+              print("::error::The audit job must publish 'config_found'")
+              failures += 1
+
+          if not failures:
+              print("Every documentation job gates on discovery \u2705")
+          sys.exit(1 if failures else 0)
+          GATES
+
   # The standalone audit against this repository, which ships a
   # ReadTheDocs configuration and so exercises the discovery path.
   audit:
@@ -115,7 +171,7 @@ jobs:
   outcome:
     name: 'Report Outcome'
     if: ${{ always() }}
-    needs: [audit, audit-policy, verify, checkout-inputs]
+    needs: [audit, audit-policy, verify, workflow-shape]
     runs-on: ubuntu-latest
     permissions: {}
     timeout-minutes: 5
@@ -127,7 +183,7 @@ jobs:
           POLICY: ${{ needs.audit-policy.result }}
           POLICY_FINDINGS: ${{ needs.audit-policy.outputs.findings_json }}
           VERIFY: ${{ needs.verify.result }}
-          CHECKOUTS: ${{ needs.checkout-inputs.result }}
+          CHECKOUTS: ${{ needs.workflow-shape.result }}
         run: |
           # Check results
           fail=0
@@ -136,7 +192,7 @@ jobs:
             fail=1
           fi
           if [ "${CHECKOUTS}" != 'success' ]; then
-            echo "::error::Checkout inputs leg reported ${CHECKOUTS}"
+            echo "::error::Workflow shape leg reported ${CHECKOUTS}"
             fail=1
           fi
           if [ "${VERIFY}" != 'success' ]; then
