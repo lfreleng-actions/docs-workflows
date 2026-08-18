@@ -42,6 +42,14 @@ jobs:
   #     none, so an ungated merge registered one for a repository that
   #     ships no documentation at all.
   #
+  #   * Every job carries at most one harden-runner step, unconditioned.
+  #     The action declares a 'pre' entry point and no 'pre-if', so a
+  #     step-level condition does not gate the pre-phase, which is where
+  #     the agent engages. A block/audit pair therefore both engaged:
+  #     the second collided with the running binary and annotated every
+  #     ONAP run with a failure, while the block policy won and the
+  #     audit input silently did nothing.
+  #
   # Both need a live Gerrit change or a specific repository to
   # reproduce, so guard the shape instead.
   workflow-shape:
@@ -132,6 +140,53 @@ jobs:
               print("Every documentation job gates on discovery \u2705")
           sys.exit(1 if failures else 0)
           GATES
+
+      - name: 'One harden-runner step per job'
+        shell: bash
+        run: |
+          # One harden-runner step per job
+          python3 - <<'HARDEN'
+          import sys, yaml
+
+          ACTION = "step-security/harden-runner@"
+          TOGGLE = "inputs.harden_runner_egress"
+          failures = 0
+
+          for path in (".github/workflows/docs-build.yaml",
+                       ".github/workflows/docs-audit.yaml"):
+              wf = yaml.safe_load(open(path, encoding="utf-8"))
+              for job, spec in wf["jobs"].items():
+                  steps = [s for s in spec.get("steps", [])
+                           if ACTION in str(s.get("uses", ""))]
+                  if len(steps) > 1:
+                      print(f"::error file={path}::Job '{job}' holds "
+                            f"{len(steps)} harden-runner steps; the "
+                            "pre-phase ignores 'if:', so each job "
+                            "needs exactly one")
+                      failures += 1
+                  for step in steps:
+                      with_ = step.get("with", {})
+                      policy = str(with_.get("egress-policy", ""))
+                      if "if" in step:
+                          print(f"::error file={path}::Job '{job}' "
+                                "conditions a harden-runner step; the "
+                                "pre-phase runs regardless")
+                          failures += 1
+                      # A step carrying the allow-list is one of the
+                      # toggled jobs, so it must read the input rather
+                      # than hard-code a policy.
+                      if "allowed-endpoints" in with_ and TOGGLE not in policy:
+                          print(f"::error file={path}::Job '{job}' must "
+                                f"select its policy from {TOGGLE}; "
+                                f"found '{policy}'")
+                          failures += 1
+                  if steps:
+                      print(f"{path}: {job}: {len(steps)} harden-runner step")
+
+          if not failures:
+              print("One harden-runner step per job \u2705")
+          sys.exit(1 if failures else 0)
+          HARDEN
 
   # The standalone audit against this repository, which ships a
   # ReadTheDocs configuration and so exercises the discovery path.
