@@ -181,6 +181,10 @@ jobs:
           # yamllint disable-line rule:line-length
           gerrit-url: ${{ inputs.gerrit_url != '' && inputs.gerrit_url || vars.GERRIT_URL }}
           delay: '0s'
+          # The action defaults this to github.repository, which inside a
+          # reusable workflow names the caller rather than the project
+          # under review.
+          repository: ${{ inputs.repository || github.repository }}
           ref: refs/heads/${{ inputs.gerrit_branch }}
           submodules: 'true'
       - name: 'Checkout repository'
