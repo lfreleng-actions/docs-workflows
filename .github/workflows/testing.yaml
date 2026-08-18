@@ -29,6 +29,54 @@ concurrency:
 permissions: {}
 
 jobs:
+  # Every checkout must name the repository under review. The action
+  # defaults to github.repository, which inside a reusable workflow
+  # names the caller: a central .github repository calling on behalf of
+  # another project would seed the tree from itself. That failed every
+  # ONAP patchset check until it was caught, so guard the shape rather
+  # than trusting review to spot a missing line.
+  checkout-inputs:
+    name: 'Checkout Inputs'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - name: 'Harden runner'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: 'audit'
+
+      - name: 'Checkout repository'
+        # yamllint disable-line rule:line-length
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 'Every Gerrit checkout names a repository'
+        shell: bash
+        run: |
+          # Every Gerrit checkout names a repository
+          fail=0
+          for wf in .github/workflows/docs-build.yaml \
+                    .github/workflows/docs-audit.yaml; do
+            gerrit=$(grep -c 'checkout-gerrit-change-action@' "$wf" || true)
+            plain=$(grep -c 'actions/checkout@' "$wf" || true)
+            named=$(grep -c 'inputs.repository ||' "$wf" || true)
+            expected=$((gerrit + plain))
+            echo "$wf: gerrit=$gerrit plain=$plain named=$named"
+            if [ "$named" -ne "$expected" ]; then
+              echo "::error file=$wf::Expected $expected repository inputs," \
+                "found $named; every checkout must name one."
+              fail=1
+            fi
+          done
+          if [ "$fail" = '0' ]; then
+            echo 'Every checkout names a repository ✅'
+          fi
+          exit "$fail"
+
   # The standalone audit against this repository, which ships a
   # ReadTheDocs configuration and so exercises the discovery path.
   audit:
@@ -67,7 +115,7 @@ jobs:
   outcome:
     name: 'Report Outcome'
     if: ${{ always() }}
-    needs: [audit, audit-policy, verify]
+    needs: [audit, audit-policy, verify, checkout-inputs]
     runs-on: ubuntu-latest
     permissions: {}
     timeout-minutes: 5
@@ -79,11 +127,16 @@ jobs:
           POLICY: ${{ needs.audit-policy.result }}
           POLICY_FINDINGS: ${{ needs.audit-policy.outputs.findings_json }}
           VERIFY: ${{ needs.verify.result }}
+          CHECKOUTS: ${{ needs.checkout-inputs.result }}
         run: |
           # Check results
           fail=0
           if [ "${AUDIT}" != 'success' ]; then
             echo "::error::Audit leg reported ${AUDIT}"
+            fail=1
+          fi
+          if [ "${CHECKOUTS}" != 'success' ]; then
+            echo "::error::Checkout inputs leg reported ${CHECKOUTS}"
             fail=1
           fi
           if [ "${VERIFY}" != 'success' ]; then
