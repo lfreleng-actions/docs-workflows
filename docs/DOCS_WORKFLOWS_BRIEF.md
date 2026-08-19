@@ -720,16 +720,22 @@ The harden-runner pattern from `python-workflows` gives the target shape:
   uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
   with:
     config: ${{ inputs.harden_runner_allowlist }}
-- name: 'Harden runner (block)'
-  if: inputs.harden_runner_egress != 'audit'
+- name: 'Harden runner'
   uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
   with:
-    egress-policy: 'block'
+    egress-policy: ${{ inputs.harden_runner_egress == 'audit' && 'audit' || 'block' }}
     allowed-endpoints: >
       ${{ env.CONNECTION_ALLOW_LIST }}
 ```
 
 <!-- markdownlint-enable MD013 -->
+
+A job carries one harden-runner step. The action declares a `pre`
+entry point and no `pre-if`, so a step-level `if:` does not gate the
+pre-phase, and the pre-phase is where the agent engages. Two steps in one
+job both engage; the second collides with the running agent
+binary and reports `cp: cannot create regular file '/home/agent/agent':
+Text file busy`. Compute the policy inline instead.
 
 The allow-list default points at a pinned path in the organisation
 `.github` repository:

@@ -396,26 +396,19 @@ jobs:
       tox_path: ${{ steps.audit.outputs.tox_path }}
       tox_dir: ${{ steps.audit.outputs.tox_dir }}
     steps:
-      - name: 'Load egress allow-list (block mode)'
-        if: inputs.harden_runner_egress != 'audit'
+      - name: 'Load egress allow-list'
         # yamllint disable-line rule:line-length
         uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
         with:
           config: ${{ inputs.harden_runner_allowlist }}
-      - name: 'Harden runner (block)'
-        if: inputs.harden_runner_egress != 'audit'
+      - name: 'Harden runner'
         # yamllint disable-line rule:line-length
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
         with:
-          egress-policy: 'block'
+          # yamllint disable-line rule:line-length
+          egress-policy: ${{ inputs.harden_runner_egress == 'audit' && 'audit' || 'block' }}
           allowed-endpoints: >
             ${{ env.CONNECTION_ALLOW_LIST }}
-      - name: 'Harden runner (audit)'
-        if: inputs.harden_runner_egress == 'audit'
-        # yamllint disable-line rule:line-length
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
-        with:
-          egress-policy: 'audit'
 
       - name: 'Checkout Gerrit change'
         if: inputs.gerrit_refspec != ''
@@ -522,26 +515,19 @@ jobs:
       contents: read
     timeout-minutes: ${{ inputs.docs_timeout_minutes }}
     steps:
-      - name: 'Load egress allow-list (block mode)'
-        if: inputs.harden_runner_egress != 'audit'
+      - name: 'Load egress allow-list'
         # yamllint disable-line rule:line-length
         uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
         with:
           config: ${{ inputs.harden_runner_allowlist }}
-      - name: 'Harden runner (block)'
-        if: inputs.harden_runner_egress != 'audit'
+      - name: 'Harden runner'
         # yamllint disable-line rule:line-length
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
         with:
-          egress-policy: 'block'
+          # yamllint disable-line rule:line-length
+          egress-policy: ${{ inputs.harden_runner_egress == 'audit' && 'audit' || 'block' }}
           allowed-endpoints: >
             ${{ env.CONNECTION_ALLOW_LIST }}
-      - name: 'Harden runner (audit)'
-        if: inputs.harden_runner_egress == 'audit'
-        # yamllint disable-line rule:line-length
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
-        with:
-          egress-policy: 'audit'
 
       - name: 'Checkout Gerrit change'
         if: inputs.gerrit_refspec != ''
@@ -721,30 +707,30 @@ jobs:
     outputs:
       documentation_url: ${{ steps.readthedocs.outputs.documentation_url }}
     steps:
-      - name: 'Load egress allow-list (block mode)'
-        if: inputs.harden_runner_egress != 'audit'
+      - name: 'Load egress allow-list'
         # yamllint disable-line rule:line-length
         uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
         with:
           config: ${{ inputs.harden_runner_allowlist }}
-      - name: 'Harden runner (block)'
-        if: inputs.harden_runner_egress != 'audit'
+      - name: 'Harden runner'
         # yamllint disable-line rule:line-length
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
         with:
-          egress-policy: 'block'
+          # yamllint disable-line rule:line-length
+          egress-policy: ${{ inputs.harden_runner_egress == 'audit' && 'audit' || 'block' }}
           allowed-endpoints: >
             ${{ env.CONNECTION_ALLOW_LIST }}
-      - name: 'Harden runner (audit)'
-        if: inputs.harden_runner_egress == 'audit'
-        # yamllint disable-line rule:line-length
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
-        with:
-          egress-policy: 'audit'
 
       - name: 'Install uv'
         # yamllint disable-line rule:line-length
         uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d  # v10.0.0
+        with:
+          # This job drives the ReadTheDocs API and never checks the
+          # repository out. With an empty working directory there are no
+          # dependency files to key a cache from, so a cache would never
+          # invalidate; both settings suppress warnings about that.
+          enable-cache: 'false'
+          ignore-empty-workdir: 'true'
 
       - name: 'Verify or publish documentation'
         id: readthedocs
