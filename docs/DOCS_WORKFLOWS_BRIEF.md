@@ -215,6 +215,7 @@ if os.environ.get("LEGACY_CLI") == "1":
     cli(obj={})
 else:
     from lftools_uv.cli_app import app as typer_app
+
     typer_app()
 ```
 
