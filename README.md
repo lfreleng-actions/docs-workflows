@@ -196,8 +196,9 @@ actions, so tests cover it without a workflow run:
 ## Testing
 
 `.github/workflows/testing.yaml` exercises both workflows against a real
-documentation project by local path, so a pull request validates the
-branch under review.
+documentation project by self-repository path (`uses: $/...`), which
+resolves this repository at the commit already running, so a pull
+request validates the branch under review.
 
 The ReadTheDocs legs stay disabled there. Reaching the API needs a token
 a fork may not hold, and the merge lane would create and build real
