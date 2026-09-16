@@ -5,8 +5,9 @@
 # Exercises the reusable workflows in this repository against a real
 # documentation project, to prove they function end to end.
 #
-# The workflows are referenced by LOCAL path so this always validates the
-# current branch.
+# The workflows are referenced with the self-repository form ('$/'),
+# which resolves this repository at the commit already running, so the
+# workflows under test are always the ones this branch defines.
 #
 # The ReadTheDocs legs stay disabled here. Reaching the API needs an
 # RTD_TOKEN a fork may not hold, and the merge lane would create and
@@ -194,7 +195,7 @@ jobs:
     name: 'Audit'
     permissions:
       contents: read
-    uses: ./.github/workflows/docs-audit.yaml
+    uses: $/.github/workflows/docs-audit.yaml
 
   # Prove the policy inputs reach the audit action. Naming a build image
   # that differs from the one this repository declares yields a warning
@@ -205,7 +206,7 @@ jobs:
     name: 'Audit With Policy'
     permissions:
       contents: read
-    uses: ./.github/workflows/docs-audit.yaml
+    uses: $/.github/workflows/docs-audit.yaml
     with:
       build_os: 'ubuntu-24.04'
 
@@ -217,7 +218,7 @@ jobs:
     name: 'Verify'
     permissions:
       contents: read
-    uses: ./.github/workflows/docs-build.yaml
+    uses: $/.github/workflows/docs-build.yaml
     with:
       mode: 'verify'
       repository: 'lfreleng-actions/lftools-uv'
