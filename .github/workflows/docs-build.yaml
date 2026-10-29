@@ -213,7 +213,7 @@ on:
         required: false
         type: string
         # yamllint disable-line rule:line-length
-        default: 'lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@084d6861688632b2edb6bde3c180145bebf9cc7a'  # v0.17.2
+        default: 'lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@6d4a65c5601afd6c2fbe52bda4b0024b132f265d'  # v0.19.0
 
       # --- Timeouts ---
       docs_timeout_minutes:
@@ -413,7 +413,7 @@ jobs:
       - name: 'Checkout Gerrit change'
         if: inputs.gerrit_refspec != ''
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/checkout-gerrit-change-action@35e98c8043ec411611e464e296bcfb441a5c5093  # v1.1.2
+        uses: lfreleng-actions/checkout-gerrit-change-action@f0dd3d4dd4fceff1f56348152ecf0e040594f16a  # v1.2.1
         with:
           gerrit-refspec: ${{ inputs.gerrit_refspec }}
           gerrit-project: ${{ inputs.gerrit_project }}
@@ -533,7 +533,7 @@ jobs:
       - name: 'Checkout Gerrit change'
         if: inputs.gerrit_refspec != ''
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/checkout-gerrit-change-action@35e98c8043ec411611e464e296bcfb441a5c5093  # v1.1.2
+        uses: lfreleng-actions/checkout-gerrit-change-action@f0dd3d4dd4fceff1f56348152ecf0e040594f16a  # v1.2.1
         with:
           gerrit-refspec: ${{ inputs.gerrit_refspec }}
           gerrit-project: ${{ inputs.gerrit_project }}
@@ -607,7 +607,7 @@ jobs:
       - name: 'Checkout Gerrit change'
         if: inputs.gerrit_refspec != ''
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/checkout-gerrit-change-action@35e98c8043ec411611e464e296bcfb441a5c5093  # v1.1.2
+        uses: lfreleng-actions/checkout-gerrit-change-action@f0dd3d4dd4fceff1f56348152ecf0e040594f16a  # v1.2.1
         with:
           gerrit-refspec: ${{ inputs.gerrit_refspec }}
           gerrit-project: ${{ inputs.gerrit_project }}
@@ -725,7 +725,7 @@ jobs:
 
       - name: 'Install uv'
         # yamllint disable-line rule:line-length
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           # This job drives the ReadTheDocs API and never checks the
           # repository out. With an empty working directory there are no

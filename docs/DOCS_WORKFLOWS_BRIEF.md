@@ -718,7 +718,7 @@ The harden-runner pattern from `python-workflows` gives the target shape:
 
 ```yaml
 - name: 'Load harden-runner allow-list'
-  uses: lfreleng-actions/harden-runner-block-action@6db537b3e6d060c3287c5a3ce2c28b55b0af330d  # v0.2.1
+  uses: lfreleng-actions/harden-runner-block-action@e5e8179f45aa893b23cc8b5d2e25466355d9c4f8  # v0.14.0
   with:
     config: ${{ inputs.harden_runner_allowlist }}
 - name: 'Harden runner'
@@ -742,10 +742,10 @@ The allow-list default points at a pinned path in the organisation
 `.github` repository:
 
 ```text
-lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@18d9c4446bea555d0783e850f6d295f844fe8f67
+lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@6d4a65c5601afd6c2fbe52bda4b0024b132f265d
 ```
 
-That file holds 514 lines. A documentation pipeline reaches
+That file holds 796 lines. A documentation pipeline reaches
 `readthedocs.org`, PyPI and every host a project links to during
 `docs-linkcheck`, so the allow-list needs review before block mode goes
 live. Link checking against arbitrary hosts and egress blocking pull in
