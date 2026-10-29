@@ -141,6 +141,26 @@ Blocking there would defeat the check rather than secure it.
 `harden_runner_egress: audit` relaxes the remaining jobs when a project
 needs to observe its egress before committing to a block list.
 
+A project whose build needs endpoints beyond the organisation baseline
+names its own list in `harden_runner_supplemental_allowlist`, using the
+same coordinate grammar as `harden_runner_allowlist`. The jobs merge it
+with the baseline, so the extra endpoints reach that project alone
+rather than every caller:
+
+<!-- markdownlint-disable MD013 -->
+
+```yaml
+with:
+  harden_runner_supplemental_allowlist: 'onap//.github/harden-runner/onap/allow_list.txt@<commit sha>'
+```
+
+<!-- markdownlint-enable MD013 -->
+
+Pin the list to a commit. Naming a list makes the jobs depend on it: if
+it cannot load, the job fails at once rather than at the first blocked
+connection. A supplemental list extends the baseline, so setting one
+with an empty `harden_runner_allowlist` fails the run.
+
 ## Inputs
 
 `docs-build.yaml` requires `mode` alone. Every other input carries a
@@ -158,7 +178,7 @@ documentation layout.
 | Build       | `docs_enabled`, `linkcheck_enabled`, `linkcheck_advisory`                                                                                                                            |
 | Audit       | `audit_enabled`, `audit_required_files`, `audit_forbidden_files`, `audit_build_os`, `audit_python_version`, `audit_eol_behaviour`, `audit_linkcheck_policy`, `audit_fail_on_warning` |
 | ReadTheDocs | `rtd_enabled`, `rtd_project`, `rtd_parent_project`, `rtd_parent_suffix`, `rtd_project_overrides`, `rtd_default_version`, `rtd_default_branch`, `lftools_version`                     |
-| Hardening   | `harden_runner_egress`, `harden_runner_allowlist`                                                                                                                                    |
+| Hardening   | `harden_runner_egress`, `harden_runner_allowlist`, `harden_runner_supplemental_allowlist`                                                                                            |
 | Timeouts    | `docs_timeout_minutes`, `rtd_timeout_minutes`                                                                                                                                        |
 
 <!-- markdownlint-enable MD013 -->
