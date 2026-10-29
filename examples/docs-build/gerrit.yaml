@@ -82,7 +82,13 @@ on:
         type: boolean
 
 concurrency:
-  group: ${{ github.event.inputs.GERRIT_CHANGE_ID || github.run_id }}
+  # Key on the change number rather than the Change-Id. A cherry-pick to
+  # another branch keeps its Change-Id, so a change and its cherry-pick
+  # would cancel each other's runs. The change number is unique on the
+  # Gerrit server and shared by every patchset of a change, so a new
+  # patchset still replaces the run for the previous one.
+  # yamllint disable-line rule:line-length
+  group: docs-verify-${{ github.event.inputs.GERRIT_PROJECT }}-${{ github.event.inputs.GERRIT_CHANGE_NUMBER || github.run_id }}
   cancel-in-progress: true
 
 permissions: {}
@@ -155,7 +161,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read  # workflow-conclusion lists this run's jobs
     timeout-minutes: 5
     steps:
       - name: 'Harden runner'
@@ -163,9 +168,6 @@ jobs:
         uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
         with:
           egress-policy: audit
-      - name: 'Get conclusion'
-        # yamllint disable-line rule:line-length
-        uses: im-open/workflow-conclusion@8eac7f17381a6917bc04fec3e2c92e70ebc37526  # v3.0.0
       - name: 'Set vote'
         # yamllint disable-line rule:line-length
         uses: lfreleng-actions/gerrit-review-action@d56b0b5c81402f8cb435aaca513bebdea3be951e  # v1.2.0
@@ -176,4 +178,10 @@ jobs:
           known_hosts: ${{ vars.GERRIT_KNOWN_HOSTS }}
           gerrit-change-number: ${{ inputs.GERRIT_CHANGE_NUMBER }}
           gerrit-patchset-number: ${{ inputs.GERRIT_PATCHSET_NUMBER }}
-          vote-type: ${{ env.WORKFLOW_CONCLUSION }}
+          # Derive the vote from needs rather than the jobs API. That API
+          # can still report jobs as unfinished, which yields 'skipped',
+          # and gerrit-review-action rejects that vote type.
+          vote-type: >-
+            ${{ contains(needs.*.result, 'failure') && 'failure'
+                || contains(needs.*.result, 'cancelled') && 'cancelled'
+                || 'success' }}

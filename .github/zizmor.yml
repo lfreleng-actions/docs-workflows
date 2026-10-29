@@ -46,7 +46,7 @@ rules:
       # on purpose. Consumers copy these files wholesale, and an inline
       # suppression would travel with them, masking a genuine finding in
       # their repository once they replace the placeholder.
-      - gerrit-merge.yaml:110
-      - gerrit.yaml:135
+      - gerrit-merge.yaml:115
+      - gerrit.yaml:141
       - github.yaml:36
       - github.yaml:38
