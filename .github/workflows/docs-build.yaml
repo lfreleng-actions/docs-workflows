@@ -737,7 +737,7 @@ jobs:
       - name: 'Verify or publish documentation'
         id: readthedocs
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-build-action@92100e80ad1540510b7f62d5d13c0a0b5aab2942  # v0.0.2
+        uses: lfreleng-actions/rtd-build-action@d5a4e1ed44deca18797b840eb0784d42fef8f4e2  # v0.0.3
         with:
           mode: ${{ inputs.mode }}
           rtd_token: ${{ secrets.RTD_TOKEN }}
