@@ -229,6 +229,57 @@ jobs:
           sys.exit(1 if failures else 0)
           HARDEN
 
+      # setup-uv runs 'uv python find' in its working directory and
+      # executes the interpreter it returns, and reads uv settings from
+      # a uv.toml or pyproject.toml there. Its default is the workspace,
+      # which holds the caller's code wherever a job checks it out.
+      # The ReadTheDocs job, the one setup-uv user, cannot run here
+      # without an RTD_TOKEN, so pin the wiring instead.
+      - name: 'Every setup-uv step works outside the workspace'
+        shell: bash
+        run: |
+          # Every setup-uv step works outside the workspace
+          python3 -I - <<'SETUPUV'
+          import sys, yaml
+
+          ACTION = "astral-sh/setup-uv@"
+          # Split so the runner does not expand it inside this script.
+          WANT_DIR = "$" + "{{ runner.temp }}"
+          WANT_ENV = ("UV_NO_CONFIG", "UV_SYSTEM_PYTHON", "UV_NO_PROJECT")
+          failures = 0
+          seen = 0
+
+          for path in (".github/workflows/docs-build.yaml",
+                       ".github/workflows/docs-audit.yaml"):
+              wf = yaml.safe_load(open(path, encoding="utf-8"))
+              for job, spec in wf["jobs"].items():
+                  for step in spec.get("steps", []):
+                      if ACTION not in str(step.get("uses", "")):
+                          continue
+                      seen += 1
+                      wd = step.get("with", {}).get("working-directory")
+                      if wd != WANT_DIR:
+                          print(f"::error file={path}::Job '{job}': setup-uv "
+                                f"working-directory is {wd!r}, expected "
+                                f"{WANT_DIR!r}")
+                          failures += 1
+                      env = step.get("env", {})
+                      for key in WANT_ENV:
+                          if str(env.get(key)) != "1":
+                              print(f"::error file={path}::Job '{job}': "
+                                    f"setup-uv env {key} is "
+                                    f"{env.get(key)!r}, expected '1'")
+                              failures += 1
+                      print(f"{path}: {job}: setup-uv in {wd}")
+
+          if not seen:
+              print("::error::No setup-uv step found; update this check")
+              failures += 1
+          if not failures:
+              print("Every setup-uv step works outside the workspace \u2705")
+          sys.exit(1 if failures else 0)
+          SETUPUV
+
   # The standalone audit against this repository, which ships a
   # ReadTheDocs configuration and so exercises the discovery path.
   audit:
