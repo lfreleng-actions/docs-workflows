@@ -165,7 +165,8 @@ documentation layout.
 
 Secrets: `RTD_TOKEN`, required when `rtd_enabled` stays true.
 
-Outputs: `docs_python`, `audit_passed`, `documentation_url`.
+Outputs: `docs_python`, `audit_passed`, `documentation_url`,
+`cancelled_builds`.
 
 ## ReadTheDocs naming
 

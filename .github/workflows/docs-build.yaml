@@ -242,6 +242,9 @@ on:
       documentation_url:
         description: 'URL of the published documentation'
         value: ${{ jobs.readthedocs.outputs.documentation_url }}
+      cancelled_builds:
+        description: 'Builds Read the Docs cancelled during this run'
+        value: ${{ jobs.readthedocs.outputs.cancelled_builds }}
 
 permissions: {}
 
@@ -707,6 +710,7 @@ jobs:
     timeout-minutes: ${{ inputs.rtd_timeout_minutes }}
     outputs:
       documentation_url: ${{ steps.readthedocs.outputs.documentation_url }}
+      cancelled_builds: ${{ steps.readthedocs.outputs.cancelled_builds }}
     steps:
       - name: 'Load egress allow-list'
         # yamllint disable-line rule:line-length
@@ -737,7 +741,7 @@ jobs:
       - name: 'Verify or publish documentation'
         id: readthedocs
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-build-action@d5a4e1ed44deca18797b840eb0784d42fef8f4e2  # v0.0.3
+        uses: lfreleng-actions/rtd-build-action@0166f7ecb1bcb6eb7066721bd4ac13ba2aa03517  # v0.1.0
         with:
           mode: ${{ inputs.mode }}
           rtd_token: ${{ secrets.RTD_TOKEN }}
