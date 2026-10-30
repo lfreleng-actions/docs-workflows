@@ -129,6 +129,38 @@ The audit reports separately when a project sets `-W` on its linkcheck
 tox environment, which turns the same third-party unreliability into a
 hard failure inside the project's own configuration.
 
+## Runner parity
+
+The documentation builds twice: in the `docs` and `linkcheck` jobs with
+tox, and on Read the Docs. When the two environments differ, one can
+fail while the other passes, so the workflow matches the GitHub build to
+the Read the Docs one.
+
+**Build runner.** The audit maps the project's `build.os` to the
+matching GitHub runner label, and the `docs` and `linkcheck` jobs run
+on it. The label comes from a file in the repository under test, so the
+jobs accept no labels beyond `ubuntu-22.04`, `ubuntu-24.04` and
+`ubuntu-26.04`.
+When `build.os` has no matching runner, or names anything else, the jobs
+fall back to `ubuntu-24.04` and the `docs` job warns. Its job summary
+reports the runner OS, the label the audit asked for and the apt
+packages installed.
+
+**Audit runner.** The audit job runs on `ubuntu-24.04` rather than
+`ubuntu-latest`, in both workflows. The audit compares its own OS with
+`build.os`, and GitHub assigns `ubuntu-latest` to 24.04 or 26.04 at
+random during its migration, so on that label the `runner-os-mismatch`
+warning would come and go between runs.
+
+**Apt packages.** Both build jobs install the project's
+`build.apt_packages` before tox runs, as Read the Docs does. The names
+reach a command run as root, so the jobs check them again after the
+audit has.
+
+**Not reproduced.** Read the Docs `build.jobs` and `build.commands` do
+not run in the GitHub build. The audit warns when a project declares
+them.
+
 ## Runner hardening
 
 Every job loads the organisation egress allow-list and runs
@@ -185,8 +217,8 @@ documentation layout.
 
 Secrets: `RTD_TOKEN`, required when `rtd_enabled` stays true.
 
-Outputs: `docs_python`, `audit_passed`, `documentation_url`,
-`cancelled_builds`.
+Outputs: `docs_python`, `audit_passed`, `runner`, `apt_packages`,
+`documentation_url`, `cancelled_builds`.
 
 ## ReadTheDocs naming
 
@@ -199,8 +231,9 @@ Set `rtd_project` or `rtd_parent_project` to bypass derivation, or
 
 ## Composition
 
-The workflows carry no shell beyond input validation. The work lives in
-actions, so tests cover it without a workflow run:
+The workflows carry no shell beyond input validation, reporting and
+the Read the Docs apt install. The rest of the work lives in actions,
+so tests cover it without a workflow run:
 
 <!-- markdownlint-disable MD013 -->
 

@@ -246,6 +246,14 @@ on:
       audit_passed:
         description: 'Whether the configuration audit passed'
         value: ${{ jobs.audit.outputs.passed }}
+      runner:
+        description: >-
+          GitHub runner label matching the project's build.os; empty
+          when no runner matches
+        value: ${{ jobs.audit.outputs.runner }}
+      apt_packages:
+        description: 'Space-separated build.apt_packages the project declares'
+        value: ${{ jobs.audit.outputs.apt_packages }}
       documentation_url:
         description: 'URL of the published documentation'
         value: ${{ jobs.readthedocs.outputs.documentation_url }}
@@ -412,14 +420,20 @@ jobs:
     name: 'Configuration Audit'
     needs: validate
     if: ${{ !cancelled() && needs.validate.result == 'success' }}
-    runs-on: ubuntu-latest
+    # The audit compares its own OS with build.os and warns on a
+    # mismatch (runner-os-mismatch). GitHub is moving ubuntu-latest from
+    # 24.04 to 26.04 and assigns either at random during the rollout, so
+    # on ubuntu-latest that warning would come and go between runs.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 10
     outputs:
+      apt_packages: ${{ steps.audit.outputs.apt_packages }}
       config_found: ${{ steps.audit.outputs.config_found }}
       docs_python: ${{ steps.audit.outputs.docs_python }}
       passed: ${{ steps.audit.outputs.passed }}
+      runner: ${{ steps.audit.outputs.runner }}
       tox_path: ${{ steps.audit.outputs.tox_path }}
       tox_dir: ${{ steps.audit.outputs.tox_dir }}
     steps:
@@ -477,7 +491,7 @@ jobs:
       - name: 'Audit ReadTheDocs configuration'
         id: audit
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-config-audit-action@5952449adeb5a6324b606667cfd8040e7a943ded  # v0.1.2
+        uses: lfreleng-actions/rtd-config-audit-action@edfb9d17066b71397c049aef9a5b960aad1ede0a  # v0.2.0
         continue-on-error: ${{ !inputs.audit_enabled }}
         with:
           path_prefix: ${{ inputs.path_prefix }}
@@ -543,7 +557,15 @@ jobs:
           && inputs.mode == 'verify'
           && inputs.docs_enabled
           && needs.audit.outputs.tox_path != '' }}
-    runs-on: ubuntu-latest
+    # Build on the runner matching the project's build.os, so this build
+    # and Read the Docs share an OS. The label comes from a file in the
+    # repository under test, so only known GitHub-hosted labels pass;
+    # anything else, including an empty value when build.os has no
+    # matching runner, falls back to ubuntu-24.04.
+    runs-on: >-
+      ${{ contains(fromJSON('["ubuntu-22.04","ubuntu-24.04","ubuntu-26.04"]'),
+                   needs.audit.outputs.runner)
+          && needs.audit.outputs.runner || 'ubuntu-24.04' }}
     permissions:
       contents: read
     timeout-minutes: ${{ inputs.docs_timeout_minutes }}
@@ -597,6 +619,41 @@ jobs:
           submodules: 'true'
           persist-credentials: false
 
+      - name: 'Report runner parity'
+        shell: bash
+        env:
+          REQUESTED_RUNNER: ${{ needs.audit.outputs.runner }}
+          APT_PACKAGES: ${{ needs.audit.outputs.apt_packages }}
+        run: |
+          # Report runner parity
+          set -euo pipefail
+          version_id=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"')
+          runner_os="ubuntu-${version_id}"
+
+          if [ -z "${REQUESTED_RUNNER}" ]; then
+            echo "::warning title=No matching runner::The project's" \
+              "build.os has no matching GitHub runner, so the build runs" \
+              "on ubuntu-24.04."
+          elif [ "${runner_os}" != "${REQUESTED_RUNNER}" ]; then
+            # Only a label outside the runs-on allow-list lands here.
+            echo "::warning title=Runner mismatch::The audit asked for" \
+              "${REQUESTED_RUNNER}, which is not an allowed label, so the" \
+              "build runs on ${runner_os}."
+          fi
+
+          # The backticks below open Markdown code spans in the job
+          # summary; they are not command substitution.
+          # shellcheck disable=SC2016
+          {
+            echo '### Runner parity'
+            echo
+            printf -- '- Runner OS: `%s`\n' "${runner_os}"
+            printf -- '- Requested by the audit: `%s`\n' \
+              "${REQUESTED_RUNNER:-none}"
+            printf -- '- Read the Docs apt packages: `%s`\n' \
+              "${APT_PACKAGES:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: 'Setup Python'
         # yamllint disable-line rule:line-length
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
@@ -611,6 +668,29 @@ jobs:
       - name: 'Install graphviz'
         # yamllint disable-line rule:line-length
         uses: tlylt/install-graphviz@b2201200d85f06f0189cb74d9b69208504cf12cd  # v1.0.0
+
+      # Read the Docs installs the project's build.apt_packages before
+      # it builds, so install them here too or the two builds diverge.
+      # The audit already validates the names; they are checked again
+      # because they reach a command run as root.
+      - name: 'Install Read the Docs apt packages'
+        if: needs.audit.outputs.apt_packages != ''
+        shell: bash
+        env:
+          APT_PACKAGES: ${{ needs.audit.outputs.apt_packages }}
+        run: |
+          # Install Read the Docs apt packages
+          set -euo pipefail
+          read -r -a packages <<< "${APT_PACKAGES}"
+          for package in "${packages[@]}"; do
+            if [[ ! "${package}" =~ ^[a-z0-9][a-z0-9+.-]+$ ]]; then
+              echo "::error::Refusing apt package name '${package}'"
+              exit 1
+            fi
+          done
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y -q --no-install-recommends -- "${packages[@]}"
 
       - name: 'Build documentation'
         # yamllint disable-line rule:line-length
@@ -629,7 +709,11 @@ jobs:
           && inputs.mode == 'verify'
           && inputs.linkcheck_enabled
           && needs.audit.outputs.tox_path != '' }}
-    runs-on: ubuntu-latest
+    # Same runner selection and allow-list as the docs job.
+    runs-on: >-
+      ${{ contains(fromJSON('["ubuntu-22.04","ubuntu-24.04","ubuntu-26.04"]'),
+                   needs.audit.outputs.runner)
+          && needs.audit.outputs.runner || 'ubuntu-24.04' }}
     permissions:
       contents: read
     timeout-minutes: ${{ inputs.docs_timeout_minutes }}
@@ -680,6 +764,26 @@ jobs:
       - name: 'Install graphviz'
         # yamllint disable-line rule:line-length
         uses: tlylt/install-graphviz@b2201200d85f06f0189cb74d9b69208504cf12cd  # v1.0.0
+
+      # As in the docs job.
+      - name: 'Install Read the Docs apt packages'
+        if: needs.audit.outputs.apt_packages != ''
+        shell: bash
+        env:
+          APT_PACKAGES: ${{ needs.audit.outputs.apt_packages }}
+        run: |
+          # Install Read the Docs apt packages
+          set -euo pipefail
+          read -r -a packages <<< "${APT_PACKAGES}"
+          for package in "${packages[@]}"; do
+            if [[ ! "${package}" =~ ^[a-z0-9][a-z0-9+.-]+$ ]]; then
+              echo "::error::Refusing apt package name '${package}'"
+              exit 1
+            fi
+          done
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y -q --no-install-recommends -- "${packages[@]}"
 
       # An expression on continue-on-error fails template evaluation
       # here, so the step always tolerates a failure and the steps below
@@ -783,7 +887,7 @@ jobs:
       - name: 'Verify or publish documentation'
         id: readthedocs
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-build-action@0166f7ecb1bcb6eb7066721bd4ac13ba2aa03517  # v0.1.0
+        uses: lfreleng-actions/rtd-build-action@8c9734b1bab1d7b21d83ae3d61bb6301ad8fd85c  # v0.1.1
         with:
           mode: ${{ inputs.mode }}
           rtd_token: ${{ secrets.RTD_TOKEN }}

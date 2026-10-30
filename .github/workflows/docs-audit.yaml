@@ -147,7 +147,11 @@ permissions: {}
 jobs:
   audit:
     name: 'Configuration Audit'
-    runs-on: ubuntu-latest
+    # The audit compares its own OS with build.os and warns on a
+    # mismatch (runner-os-mismatch). GitHub is moving ubuntu-latest from
+    # 24.04 to 26.04 and assigns either at random during the rollout, so
+    # on ubuntu-latest that warning would come and go between runs.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 10
@@ -206,7 +210,7 @@ jobs:
       - name: 'Audit ReadTheDocs configuration'
         id: audit
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-config-audit-action@5952449adeb5a6324b606667cfd8040e7a943ded  # v0.1.2
+        uses: lfreleng-actions/rtd-config-audit-action@edfb9d17066b71397c049aef9a5b960aad1ede0a  # v0.2.0
         with:
           path_prefix: ${{ inputs.path_prefix }}
           tox_file: ${{ inputs.tox_file }}
