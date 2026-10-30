@@ -477,7 +477,7 @@ jobs:
       - name: 'Audit ReadTheDocs configuration'
         id: audit
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-config-audit-action@5952449adeb5a6324b606667cfd8040e7a943ded  # v0.1.2
+        uses: lfreleng-actions/rtd-config-audit-action@edfb9d17066b71397c049aef9a5b960aad1ede0a  # v0.2.0
         continue-on-error: ${{ !inputs.audit_enabled }}
         with:
           path_prefix: ${{ inputs.path_prefix }}
@@ -783,7 +783,7 @@ jobs:
       - name: 'Verify or publish documentation'
         id: readthedocs
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-build-action@0166f7ecb1bcb6eb7066721bd4ac13ba2aa03517  # v0.1.0
+        uses: lfreleng-actions/rtd-build-action@8c9734b1bab1d7b21d83ae3d61bb6301ad8fd85c  # v0.1.1
         with:
           mode: ${{ inputs.mode }}
           rtd_token: ${{ secrets.RTD_TOKEN }}
