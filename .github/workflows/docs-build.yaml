@@ -623,6 +623,7 @@ jobs:
         shell: bash
         env:
           REQUESTED_RUNNER: ${{ needs.audit.outputs.runner }}
+          APT_PACKAGES: ${{ needs.audit.outputs.apt_packages }}
         run: |
           # Report runner parity
           set -euo pipefail
@@ -649,6 +650,8 @@ jobs:
             printf -- '- Runner OS: `%s`\n' "${runner_os}"
             printf -- '- Requested by the audit: `%s`\n' \
               "${REQUESTED_RUNNER:-none}"
+            printf -- '- Read the Docs apt packages: `%s`\n' \
+              "${APT_PACKAGES:-none}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 'Setup Python'
@@ -665,6 +668,29 @@ jobs:
       - name: 'Install graphviz'
         # yamllint disable-line rule:line-length
         uses: tlylt/install-graphviz@b2201200d85f06f0189cb74d9b69208504cf12cd  # v1.0.0
+
+      # Read the Docs installs the project's build.apt_packages before
+      # it builds, so install them here too or the two builds diverge.
+      # The audit already validates the names; they are checked again
+      # because they reach a command run as root.
+      - name: 'Install Read the Docs apt packages'
+        if: needs.audit.outputs.apt_packages != ''
+        shell: bash
+        env:
+          APT_PACKAGES: ${{ needs.audit.outputs.apt_packages }}
+        run: |
+          # Install Read the Docs apt packages
+          set -euo pipefail
+          read -r -a packages <<< "${APT_PACKAGES}"
+          for package in "${packages[@]}"; do
+            if [[ ! "${package}" =~ ^[a-z0-9][a-z0-9+.-]+$ ]]; then
+              echo "::error::Refusing apt package name '${package}'"
+              exit 1
+            fi
+          done
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y -q --no-install-recommends -- "${packages[@]}"
 
       - name: 'Build documentation'
         # yamllint disable-line rule:line-length
@@ -738,6 +764,26 @@ jobs:
       - name: 'Install graphviz'
         # yamllint disable-line rule:line-length
         uses: tlylt/install-graphviz@b2201200d85f06f0189cb74d9b69208504cf12cd  # v1.0.0
+
+      # As in the docs job.
+      - name: 'Install Read the Docs apt packages'
+        if: needs.audit.outputs.apt_packages != ''
+        shell: bash
+        env:
+          APT_PACKAGES: ${{ needs.audit.outputs.apt_packages }}
+        run: |
+          # Install Read the Docs apt packages
+          set -euo pipefail
+          read -r -a packages <<< "${APT_PACKAGES}"
+          for package in "${packages[@]}"; do
+            if [[ ! "${package}" =~ ^[a-z0-9][a-z0-9+.-]+$ ]]; then
+              echo "::error::Refusing apt package name '${package}'"
+              exit 1
+            fi
+          done
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y -q --no-install-recommends -- "${packages[@]}"
 
       # An expression on continue-on-error fails template evaluation
       # here, so the step always tolerates a failure and the steps below
