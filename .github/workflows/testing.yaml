@@ -142,6 +142,46 @@ jobs:
           sys.exit(1 if failures else 0)
           GATES
 
+      # The build jobs must run where Read the Docs builds, and the
+      # audit must run on a fixed image so its runner-os-mismatch check
+      # does not flip with GitHub's ubuntu-latest rollout.
+      - name: 'Build jobs follow the audit runner'
+        shell: bash
+        run: |
+          # Build jobs follow the audit runner
+          python3 - <<'RUNNER'
+          import sys, yaml
+
+          failures = 0
+
+          wf = yaml.safe_load(
+              open(".github/workflows/docs-build.yaml", encoding="utf-8"))
+          jobs = wf["jobs"]
+          for job in ("docs", "linkcheck"):
+              runs_on = str(jobs[job].get("runs-on", ""))
+              if "needs.audit.outputs.runner" in runs_on:
+                  print(f"{job}: runs-on follows the audit runner")
+                  continue
+              print(f"::error::Job '{job}' runs-on must reference "
+                    f"needs.audit.outputs.runner; found: {runs_on}")
+              failures += 1
+
+          for path in (".github/workflows/docs-build.yaml",
+                       ".github/workflows/docs-audit.yaml"):
+              wf = yaml.safe_load(open(path, encoding="utf-8"))
+              runs_on = wf["jobs"]["audit"].get("runs-on")
+              if runs_on == "ubuntu-24.04":
+                  print(f"{path}: audit runs on ubuntu-24.04")
+                  continue
+              print(f"::error file={path}::The audit job must run on "
+                    f"ubuntu-24.04; found: {runs_on}")
+              failures += 1
+
+          if not failures:
+              print("Build jobs follow the audit runner \u2705")
+          sys.exit(1 if failures else 0)
+          RUNNER
+
       - name: 'One harden-runner step per job'
         shell: bash
         run: |
@@ -239,6 +279,7 @@ jobs:
           POLICY: ${{ needs.audit-policy.result }}
           POLICY_FINDINGS: ${{ needs.audit-policy.outputs.findings_json }}
           VERIFY: ${{ needs.verify.result }}
+          VERIFY_RUNNER: ${{ needs.verify.outputs.runner }}
           CHECKOUTS: ${{ needs.workflow-shape.result }}
         run: |
           # Check results
@@ -253,6 +294,13 @@ jobs:
           fi
           if [ "${VERIFY}" != 'success' ]; then
             echo "::error::Verify leg reported ${VERIFY}"
+            fail=1
+          fi
+          # lftools-uv declares build.os: ubuntu-24.04, so the audit must
+          # map it to that runner for the build jobs to follow it.
+          if [ "${VERIFY_RUNNER}" != 'ubuntu-24.04' ]; then
+            echo "::error::Verify leg reported runner '${VERIFY_RUNNER}';" \
+              "expected ubuntu-24.04"
             fail=1
           fi
           if [ "${POLICY}" != 'success' ]; then
