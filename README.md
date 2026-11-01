@@ -221,6 +221,25 @@ no supplemental list. `docs-audit.yaml` has no validation job, so a
 standalone audit given the opt-in without a list ignores it and runs on
 the baseline alone.
 
+When a build breaks on a newly blocked endpoint and cannot wait for a
+list change to merge, name the endpoint inline in
+`harden_runner_extra_endpoints`, as `host[:port]` tokens separated by
+spaces or newlines. The jobs merge them into the allow-list for that
+caller alone:
+
+```yaml
+with:
+  harden_runner_extra_endpoints: 'registry.nordix.org:443'
+```
+
+Treat this as a short-term fix. Endpoints written inline live in each
+caller's workflow, where no other project can reuse them, so move
+them into the project's supplemental list and drop the input once that
+change lands. An unpinned supplemental list leaves no pin in the
+caller's history; the block-action step records the list it resolved
+in its `supplemental_source` and `supplemental_sha` outputs, which
+serve as the audit trail for what each run allowed.
+
 ## Inputs
 
 `docs-build.yaml` requires `mode` alone. Every other input carries a
@@ -238,7 +257,7 @@ documentation layout.
 | Build       | `docs_enabled`, `linkcheck_enabled`, `linkcheck_advisory`                                                                                                                            |
 | Audit       | `audit_enabled`, `audit_required_files`, `audit_forbidden_files`, `audit_build_os`, `audit_python_version`, `audit_eol_behaviour`, `audit_linkcheck_policy`, `audit_fail_on_warning` |
 | ReadTheDocs | `rtd_enabled`, `rtd_project`, `rtd_parent_project`, `rtd_parent_suffix`, `rtd_project_overrides`, `rtd_default_version`, `rtd_default_branch`, `lftools_version`                     |
-| Hardening   | `harden_runner_egress`, `harden_runner_allowlist`, `harden_runner_supplemental_allowlist`, `harden_runner_supplemental_unpinned`                                                     |
+| Hardening   | `harden_runner_egress`, `harden_runner_allowlist`, `harden_runner_supplemental_allowlist`, `harden_runner_supplemental_unpinned`, `harden_runner_extra_endpoints`                    |
 | Timeouts    | `docs_timeout_minutes`, `rtd_timeout_minutes`                                                                                                                                        |
 
 <!-- markdownlint-enable MD013 -->

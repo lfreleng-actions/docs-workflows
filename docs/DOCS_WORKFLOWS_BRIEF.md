@@ -718,9 +718,15 @@ The harden-runner pattern from `python-workflows` gives the target shape:
 
 ```yaml
 - name: 'Load harden-runner allow-list'
-  uses: lfreleng-actions/harden-runner-block-action@e5e8179f45aa893b23cc8b5d2e25466355d9c4f8  # v0.14.0
+  uses: lfreleng-actions/harden-runner-block-action@2fed66c9c36c4687c31ca349b925b81ec629673f  # v0.15.0
   with:
     config: ${{ inputs.harden_runner_allowlist }}
+    supplemental_config: ${{ inputs.harden_runner_supplemental_allowlist }}
+    # A caller naming a list depends on it, so its absence fails
+    # here rather than at the first blocked connection.
+    supplemental_required: ${{ inputs.harden_runner_supplemental_allowlist != '' && 'true' || 'false' }}
+    supplemental_unpinned: ${{ inputs.harden_runner_supplemental_unpinned && 'true' || 'false' }}
+    extra_endpoints: ${{ inputs.harden_runner_extra_endpoints }}
 - name: 'Harden runner'
   uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
   with:
