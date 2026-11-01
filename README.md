@@ -193,6 +193,34 @@ it cannot load, the job fails at once rather than at the first blocked
 connection. A supplemental list extends the baseline, so setting one
 with an empty `harden_runner_allowlist` fails the run.
 
+A project may instead let its list follow the default branch of the
+repository holding it, so a newly merged endpoint reaches every job at
+once with no pin to bump. Omit the `@ref` and opt in with
+`harden_runner_supplemental_unpinned`:
+
+<!-- markdownlint-disable MD013 -->
+
+```yaml
+with:
+  harden_runner_supplemental_allowlist: 'onap//.github/harden-runner/onap/allow_list.txt'
+  harden_runner_supplemental_unpinned: true
+```
+
+<!-- markdownlint-enable MD013 -->
+
+The action refuses an unpinned list unless the repository holding it
+belongs to the calling workflow's organisation. That rule keeps trust
+within one organisation: whoever can change `onap/.github` can already
+change the workflows ONAP projects run, so following its default branch
+grants them nothing new. A list from another organisation must still
+carry a pin. Without the opt-in, the jobs refuse a list that lacks
+`@ref`.
+
+`docs-build.yaml` fails the run when a caller sets the opt-in but names
+no supplemental list. `docs-audit.yaml` has no validation job, so a
+standalone audit given the opt-in without a list ignores it and runs on
+the baseline alone.
+
 ## Inputs
 
 `docs-build.yaml` requires `mode` alone. Every other input carries a
@@ -210,7 +238,7 @@ documentation layout.
 | Build       | `docs_enabled`, `linkcheck_enabled`, `linkcheck_advisory`                                                                                                                            |
 | Audit       | `audit_enabled`, `audit_required_files`, `audit_forbidden_files`, `audit_build_os`, `audit_python_version`, `audit_eol_behaviour`, `audit_linkcheck_policy`, `audit_fail_on_warning` |
 | ReadTheDocs | `rtd_enabled`, `rtd_project`, `rtd_parent_project`, `rtd_parent_suffix`, `rtd_project_overrides`, `rtd_default_version`, `rtd_default_branch`, `lftools_version`                     |
-| Hardening   | `harden_runner_egress`, `harden_runner_allowlist`, `harden_runner_supplemental_allowlist`                                                                                            |
+| Hardening   | `harden_runner_egress`, `harden_runner_allowlist`, `harden_runner_supplemental_allowlist`, `harden_runner_supplemental_unpinned`                                                     |
 | Timeouts    | `docs_timeout_minutes`, `rtd_timeout_minutes`                                                                                                                                        |
 
 <!-- markdownlint-enable MD013 -->

@@ -221,6 +221,14 @@ on:
         required: false
         type: string
         default: ''
+      harden_runner_supplemental_unpinned:
+        description: >-
+          Permit harden_runner_supplemental_allowlist to omit '@ref' and
+          follow its repository's default branch, only when that
+          repository belongs to the calling workflow's organisation
+        required: false
+        type: boolean
+        default: false
 
       # --- Timeouts ---
       docs_timeout_minutes:
@@ -388,6 +396,25 @@ jobs:
           fi
           echo 'Baseline allow-list present ✅'
 
+      - name: 'Require a supplemental allow-list when unpinned'
+        if: inputs.harden_runner_supplemental_unpinned
+        shell: bash
+        env:
+          SUPPLEMENTAL: ${{ inputs.harden_runner_supplemental_allowlist }}
+        run: |
+          # The unpinned opt-in only relaxes how the supplemental list
+          # is pinned, so with no list it has nothing to act on and
+          # most likely means the caller forgot to name one. The
+          # action enforces the same-organisation rule itself.
+          if [ -z "${SUPPLEMENTAL}" ]; then
+            echo "::error::harden_runner_supplemental_unpinned is true but" \
+              "harden_runner_supplemental_allowlist is empty. Name the" \
+              "list to follow, or set harden_runner_supplemental_unpinned" \
+              "to false."
+            exit 1
+          fi
+          echo 'Supplemental allow-list present ✅'
+
       - name: 'Require Gerrit project, branch and URL'
         if: inputs.gerrit_refspec != ''
         shell: bash
@@ -448,6 +475,10 @@ jobs:
           # rather than at the first blocked connection.
           # yamllint disable-line rule:line-length
           supplemental_required: ${{ inputs.harden_runner_supplemental_allowlist != '' && 'true' || 'false' }}
+          # Opt-in: the action still refuses an unpinned list from
+          # another organisation.
+          # yamllint disable-line rule:line-length
+          supplemental_unpinned: ${{ inputs.harden_runner_supplemental_unpinned && 'true' || 'false' }}
       - name: 'Harden runner'
         # yamllint disable-line rule:line-length
         uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
@@ -581,6 +612,10 @@ jobs:
           # rather than at the first blocked connection.
           # yamllint disable-line rule:line-length
           supplemental_required: ${{ inputs.harden_runner_supplemental_allowlist != '' && 'true' || 'false' }}
+          # Opt-in: the action still refuses an unpinned list from
+          # another organisation.
+          # yamllint disable-line rule:line-length
+          supplemental_unpinned: ${{ inputs.harden_runner_supplemental_unpinned && 'true' || 'false' }}
           allow_list_summary: 'false'
       - name: 'Harden runner'
         # yamllint disable-line rule:line-length
@@ -863,6 +898,10 @@ jobs:
           # rather than at the first blocked connection.
           # yamllint disable-line rule:line-length
           supplemental_required: ${{ inputs.harden_runner_supplemental_allowlist != '' && 'true' || 'false' }}
+          # Opt-in: the action still refuses an unpinned list from
+          # another organisation.
+          # yamllint disable-line rule:line-length
+          supplemental_unpinned: ${{ inputs.harden_runner_supplemental_unpinned && 'true' || 'false' }}
           allow_list_summary: 'false'
       - name: 'Harden runner'
         # yamllint disable-line rule:line-length

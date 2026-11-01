@@ -229,6 +229,51 @@ jobs:
           sys.exit(1 if failures else 0)
           HARDEN
 
+      # A step that loads the supplemental list but drops the unpinned
+      # opt-in would refuse an unpinned list in that job alone, so the
+      # caller's input would work in some jobs and fail in others.
+      - name: 'Every supplemental list passes the unpinned opt-in'
+        shell: bash
+        run: |
+          # Every supplemental list passes the unpinned opt-in
+          python3 - <<'UNPINNED'
+          import sys, yaml
+
+          INPUT = "inputs.harden_runner_supplemental_unpinned"
+          failures = 0
+          checked = 0
+
+          for path in (".github/workflows/docs-build.yaml",
+                       ".github/workflows/docs-audit.yaml"):
+              wf = yaml.safe_load(open(path, encoding="utf-8"))
+              for job, spec in wf["jobs"].items():
+                  for step in spec.get("steps", []):
+                      with_ = step.get("with", {}) or {}
+                      if "supplemental_config" not in with_:
+                          continue
+                      checked += 1
+                      value = str(with_.get("supplemental_unpinned", ""))
+                      if INPUT in value:
+                          print(f"{path}: {job}: passes "
+                                "supplemental_unpinned")
+                          continue
+                      print(f"::error file={path}::Job '{job}' step "
+                            f"'{step.get('name', '')}' passes "
+                            "supplemental_config without "
+                            f"supplemental_unpinned from {INPUT}")
+                      failures += 1
+
+          if not checked:
+              print("::error::No step passes supplemental_config; "
+                    "the check matched nothing")
+              failures += 1
+
+          if not failures:
+              print("Every supplemental list passes the unpinned "
+                    "opt-in \u2705")
+          sys.exit(1 if failures else 0)
+          UNPINNED
+
   # The standalone audit against this repository, which ships a
   # ReadTheDocs configuration and so exercises the discovery path.
   audit:

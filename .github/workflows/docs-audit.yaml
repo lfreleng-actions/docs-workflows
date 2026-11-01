@@ -127,6 +127,14 @@ on:
         required: false
         type: string
         default: ''
+      harden_runner_supplemental_unpinned:
+        description: >-
+          Permit harden_runner_supplemental_allowlist to omit '@ref' and
+          follow its repository's default branch, only when that
+          repository belongs to the calling workflow's organisation
+        required: false
+        type: boolean
+        default: false
 
     outputs:
       passed:
@@ -172,6 +180,10 @@ jobs:
           # rather than at the first blocked connection.
           # yamllint disable-line rule:line-length
           supplemental_required: ${{ inputs.harden_runner_supplemental_allowlist != '' && 'true' || 'false' }}
+          # Opt-in: the action still refuses an unpinned list from
+          # another organisation.
+          # yamllint disable-line rule:line-length
+          supplemental_unpinned: ${{ inputs.harden_runner_supplemental_unpinned && 'true' || 'false' }}
       - name: 'Harden runner'
         # yamllint disable-line rule:line-length
         uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
