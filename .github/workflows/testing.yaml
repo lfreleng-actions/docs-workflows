@@ -368,10 +368,67 @@ jobs:
       harden_runner_supplemental_unpinned: true
       harden_runner_extra_endpoints: 'github.com:443'
 
+  # tox-run-action needs Python 3.11 or newer to run tox, so a project
+  # documenting on an older Python gets a second, newer one for tox.
+  # Each fixture under tests/fixtures/docs-python stands in for a
+  # documentation build that fails unless it ran on the declared Python,
+  # so a passing leg proves which interpreter built it, not merely that
+  # tox ran. The fixtures declare build.os: ubuntu-24.04, so the build
+  # jobs run there; setup-python has no 3.8 or 3.9 for Ubuntu 26.04.
+  # linkcheck_advisory is off so a link check on the wrong Python fails
+  # the leg too.
+  #
+  # Python 3.10 pinned by basepython in [testenv:docs]. Its
+  # docs-linkcheck environment pins nothing, so it also covers the
+  # override.
+  docs-python-basepython:
+    name: 'Docs Python 3.10 (tox basepython)'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/docs-build.yaml
+    with:
+      mode: 'verify'
+      path_prefix: 'tests/fixtures/docs-python/py310-basepython'
+      rtd_enabled: false
+      linkcheck_advisory: false
+
+  # Python 3.10 declared only by .readthedocs.yaml. Without the
+  # default_base_python override, both environments would build on
+  # the Python running tox.
+  docs-python-rtd:
+    name: 'Docs Python 3.10 (Read the Docs only)'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/docs-build.yaml
+    with:
+      mode: 'verify'
+      path_prefix: 'tests/fixtures/docs-python/py310-rtd'
+      rtd_enabled: false
+      linkcheck_advisory: false
+
+  # Python 3.12 runs tox itself, so the build sets up that one alone.
+  docs-python-current:
+    name: 'Docs Python 3.12'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/docs-build.yaml
+    with:
+      mode: 'verify'
+      path_prefix: 'tests/fixtures/docs-python/py312'
+      rtd_enabled: false
+      linkcheck_advisory: false
+
   outcome:
     name: 'Report Outcome'
     if: ${{ always() }}
-    needs: [audit, audit-policy, verify, workflow-shape]
+    needs:
+      - audit
+      - audit-policy
+      - verify
+      - workflow-shape
+      - docs-python-basepython
+      - docs-python-rtd
+      - docs-python-current
     runs-on: ubuntu-latest
     permissions: {}
     timeout-minutes: 5
@@ -385,6 +442,14 @@ jobs:
           VERIFY: ${{ needs.verify.result }}
           VERIFY_RUNNER: ${{ needs.verify.outputs.runner }}
           CHECKOUTS: ${{ needs.workflow-shape.result }}
+          PINNED: ${{ needs.docs-python-basepython.result }}
+          # yamllint disable-line rule:line-length
+          PINNED_VERSIONS: ${{ needs.docs-python-basepython.outputs.python_versions }}
+          RTD: ${{ needs.docs-python-rtd.result }}
+          RTD_VERSIONS: ${{ needs.docs-python-rtd.outputs.python_versions }}
+          CURRENT: ${{ needs.docs-python-current.result }}
+          # yamllint disable-line rule:line-length
+          CURRENT_VERSIONS: ${{ needs.docs-python-current.outputs.python_versions }}
         run: |
           # Check results
           fail=0
@@ -420,6 +485,29 @@ jobs:
             echo '::error::the build_os input did not reach the audit'
             fail=1
           fi
+          # Each docs Python leg must pass, which proves its build ran on
+          # the declared Python, and must have set up the expected
+          # versions: the declared one, then 3.13 for tox when the
+          # declared one is older than 3.11.
+          # The versions arrive one per line; join them for comparison.
+          joined() {
+            printf '%s' "$1" | tr -s '\n' ' ' | sed 's/^ //; s/ $//'
+          }
+          for leg in \
+            "pinned|${PINNED}|$(joined "${PINNED_VERSIONS}")|3.10 3.13" \
+            "rtd|${RTD}|$(joined "${RTD_VERSIONS}")|3.10 3.13" \
+            "current|${CURRENT}|$(joined "${CURRENT_VERSIONS}")|3.12"; do
+            IFS='|' read -r name result versions expected <<< "${leg}"
+            if [ "${result}" != 'success' ]; then
+              echo "::error::Docs Python ${name} leg reported ${result}"
+              fail=1
+            fi
+            if [ "${versions}" != "${expected}" ]; then
+              echo "::error::Docs Python ${name} leg set up" \
+                "'${versions}'; expected '${expected}'"
+              fail=1
+            fi
+          done
           if [ "${fail}" = '0' ]; then
             echo 'All legs behaved as expected ✅'
             echo 'All legs behaved as expected ✅' >> "$GITHUB_STEP_SUMMARY"
