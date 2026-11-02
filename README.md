@@ -51,6 +51,32 @@ use the same interpreter, and the build runs from wherever the project
 keeps its documentation environments: `docs/tox.ini` where one exists,
 otherwise `tox.ini` at the root.
 
+### Documentation Python and tox Python
+
+The documentation Python is the one the audit resolves: the tox docs
+environment's `basepython` where the project pins one, otherwise
+`build.tools.python` from `.readthedocs.yaml`, otherwise Python 3.13.
+[tox-run-action][tox-run] runs tox itself on the last Python it sets up
+and needs Python 3.11 or newer for that:
+
+- **3.11 or newer**: the jobs set up that Python alone. tox and the
+  documentation both run on it.
+- **Older than 3.11**: the jobs set up the documentation Python, then
+  Python 3.13. tox runs on 3.13; the documentation still builds on the
+  documentation Python.
+
+When the documentation Python is older than 3.11, the build and link
+check jobs also set `TOX_OVERRIDE=testenv.default_base_python=pythonX.Y`,
+so a tox environment that pins no `basepython` still builds on the
+documentation Python rather than on tox's, as Read the Docs would. A
+`basepython` the project pins wins over that default. The audit job
+then warns, and notes in its job summary, that tox runs on Python 3.13,
+that the documentation still builds on the declared Python, and when
+the declared Python has reached end of life. Move the documentation to
+a supported Python to clear the warning.
+
+The `python_versions` output lists the versions set up, one per line.
+
 ### Discovery gates the work
 
 The audit also reports whether the repository ships documentation at
@@ -264,8 +290,8 @@ documentation layout.
 
 Secrets: `RTD_TOKEN`, required when `rtd_enabled` stays true.
 
-Outputs: `docs_python`, `audit_passed`, `runner`, `apt_packages`,
-`documentation_url`, `cancelled_builds`.
+Outputs: `docs_python`, `python_versions`, `audit_passed`, `runner`,
+`apt_packages`, `documentation_url`, `cancelled_builds`.
 
 ## ReadTheDocs naming
 
@@ -300,6 +326,11 @@ so tests cover it without a workflow run:
 documentation project by self-repository path (`uses: $/...`), which
 resolves this repository at the commit already running, so a pull
 request validates the branch under review.
+
+Three further legs build the fixtures under `tests/fixtures/docs-python`,
+whose tox environments fail unless they run on the Python the fixture
+declares: 3.10 pinned by `basepython`, 3.10 declared in `.readthedocs.yaml`
+alone, and 3.12.
 
 The ReadTheDocs legs stay disabled there. Reaching the API needs a token
 a fork may not hold, and the merge lane would create and build real

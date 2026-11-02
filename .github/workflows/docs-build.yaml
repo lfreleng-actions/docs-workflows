@@ -259,6 +259,12 @@ on:
       docs_python:
         description: 'Python version the documentation build used'
         value: ${{ jobs.audit.outputs.docs_python }}
+      python_versions:
+        description: >-
+          Python versions the build jobs set up, one per line: the
+          documentation Python, then the Python that runs tox when the
+          documentation Python is older than tox supports
+        value: ${{ jobs.audit.outputs.python_versions }}
       audit_passed:
         description: 'Whether the configuration audit passed'
         value: ${{ jobs.audit.outputs.passed }}
@@ -468,7 +474,9 @@ jobs:
       config_found: ${{ steps.audit.outputs.config_found }}
       docs_python: ${{ steps.audit.outputs.docs_python }}
       passed: ${{ steps.audit.outputs.passed }}
+      python_versions: ${{ steps.tox-python.outputs.python_versions }}
       runner: ${{ steps.audit.outputs.runner }}
+      tox_override: ${{ steps.tox-python.outputs.tox_override }}
       tox_path: ${{ steps.audit.outputs.tox_path }}
       tox_dir: ${{ steps.audit.outputs.tox_dir }}
     steps:
@@ -543,6 +551,65 @@ jobs:
           eol_behaviour: ${{ inputs.audit_eol_behaviour }}
           linkcheck_policy: ${{ inputs.audit_linkcheck_policy }}
           fail_on_warning: ${{ inputs.audit_fail_on_warning }}
+
+      # tox-run-action runs tox on the last Python it sets up and needs
+      # 3.11 or newer for it. A project documenting on an older Python
+      # therefore gets two: its own first, for the documentation
+      # environments, and TOX_RUNNER_PYTHON last, to run tox. Unpinned
+      # environments would then build on tox's Python instead, so
+      # tox_override points tox's default_base_python back at the
+      # documentation Python; a basepython the project pins still wins.
+      # Both build jobs read the result, so it is computed once here.
+      - name: 'Select the tox Python'
+        id: tox-python
+        shell: bash
+        env:
+          DOCS_PYTHON: ${{ steps.audit.outputs.docs_python }}
+          PYTHON_EOL: ${{ steps.audit.outputs.python_eol }}
+          # Matches the audit's default_python.
+          TOX_RUNNER_PYTHON: '3.13'
+        run: |
+          # Select the tox Python
+          set -euo pipefail
+
+          versions="${DOCS_PYTHON}"
+          override=''
+          if [[ "${DOCS_PYTHON}" =~ ^([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]]; then
+            major=$((10#${BASH_REMATCH[1]}))
+            minor=$((10#${BASH_REMATCH[2]}))
+            if (( major < 3 || (major == 3 && minor < 11) )); then
+              versions="${DOCS_PYTHON}"$'\n'"${TOX_RUNNER_PYTHON}"
+              override="testenv.default_base_python=python${major}.${minor}"
+
+              message="tox now runs on Python ${TOX_RUNNER_PYTHON}, which"
+              message="${message} tox-run-action requires; the documentation"
+              message="${message} still builds on the declared Python"
+              message="${message} ${DOCS_PYTHON}."
+              if [ "${PYTHON_EOL}" = 'true' ]; then
+                message="${message} Python ${DOCS_PYTHON} has reached end"
+                message="${message} of life; move the documentation to a"
+                message="${message} supported Python."
+              fi
+              echo "::warning title=Documentation Python older than" \
+                "tox supports::${message}"
+              {
+                echo '### Documentation Python'
+                echo
+                echo "${message}"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          # A random delimiter keeps the multi-line value from closing
+          # the block early, whatever the project declared.
+          delimiter="PYTHON_VERSIONS_$(openssl rand -hex 16)"
+          {
+            echo "python_versions<<${delimiter}"
+            printf '%s\n' "${versions}"
+            echo "${delimiter}"
+            echo "tox_override=${override}"
+          } >> "$GITHUB_OUTPUT"
+          printf 'Python versions to set up:\n%s\n' "${versions}"
 
       # A skipped job shows no reason of its own, so state plainly why
       # the ReadTheDocs job will not run, and what else that implies.
@@ -703,7 +770,7 @@ jobs:
         # yamllint disable-line rule:line-length
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: ${{ needs.audit.outputs.docs_python }}
+          python-version: ${{ needs.audit.outputs.python_versions }}
 
       # Sphinx renders inheritance and call graphs through graphviz.
       # Installing it here, once, keeps it out of the tox environments:
@@ -739,11 +806,17 @@ jobs:
 
       - name: 'Build documentation'
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/tox-run-action@2820cd45d9bc61216e8cddb84158c55c7781d321  # v0.2.0
+        uses: lfreleng-actions/tox-run-action@1d68abdba823c3b723395507fcf780e9dc91c193  # v1.0.0
+        env:
+          # Empty unless the audit job installed a separate tox Python.
+          TOX_OVERRIDE: ${{ needs.audit.outputs.tox_override }}
         with:
-          path_prefix: ${{ needs.audit.outputs.tox_dir }}
+          # The audit reports tox_dir relative to path_prefix, while
+          # the action resolves its path_prefix against the workspace.
+          # yamllint disable-line rule:line-length
+          path_prefix: ${{ format('{0}/{1}', inputs.path_prefix, needs.audit.outputs.tox_dir) }}
           tox-envs: ${{ inputs.docs_tox_env }}
-          python-version: ${{ needs.audit.outputs.docs_python }}
+          python-version: ${{ needs.audit.outputs.python_versions }}
 
   linkcheck:
     name: 'Link Check'
@@ -804,7 +877,7 @@ jobs:
         # yamllint disable-line rule:line-length
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: ${{ needs.audit.outputs.docs_python }}
+          python-version: ${{ needs.audit.outputs.python_versions }}
 
       - name: 'Install graphviz'
         # yamllint disable-line rule:line-length
@@ -837,11 +910,16 @@ jobs:
         id: linkcheck
         continue-on-error: true
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/tox-run-action@2820cd45d9bc61216e8cddb84158c55c7781d321  # v0.2.0
+        uses: lfreleng-actions/tox-run-action@1d68abdba823c3b723395507fcf780e9dc91c193  # v1.0.0
+        env:
+          # Empty unless the audit job installed a separate tox Python.
+          TOX_OVERRIDE: ${{ needs.audit.outputs.tox_override }}
         with:
-          path_prefix: ${{ needs.audit.outputs.tox_dir }}
+          # As in the docs job.
+          # yamllint disable-line rule:line-length
+          path_prefix: ${{ format('{0}/{1}', inputs.path_prefix, needs.audit.outputs.tox_dir) }}
           tox-envs: ${{ inputs.linkcheck_tox_env }}
-          python-version: ${{ needs.audit.outputs.docs_python }}
+          python-version: ${{ needs.audit.outputs.python_versions }}
 
       - name: 'Report advisory outcome'
         # yamllint disable-line rule:line-length
