@@ -741,7 +741,10 @@ jobs:
         # yamllint disable-line rule:line-length
         uses: lfreleng-actions/tox-run-action@2820cd45d9bc61216e8cddb84158c55c7781d321  # v0.2.0
         with:
-          path_prefix: ${{ needs.audit.outputs.tox_dir }}
+          # The audit reports tox_dir relative to path_prefix, while
+          # the action resolves its path_prefix against the workspace.
+          # yamllint disable-line rule:line-length
+          path_prefix: ${{ format('{0}/{1}', inputs.path_prefix, needs.audit.outputs.tox_dir) }}
           tox-envs: ${{ inputs.docs_tox_env }}
           python-version: ${{ needs.audit.outputs.docs_python }}
 
@@ -839,7 +842,9 @@ jobs:
         # yamllint disable-line rule:line-length
         uses: lfreleng-actions/tox-run-action@2820cd45d9bc61216e8cddb84158c55c7781d321  # v0.2.0
         with:
-          path_prefix: ${{ needs.audit.outputs.tox_dir }}
+          # As in the docs job.
+          # yamllint disable-line rule:line-length
+          path_prefix: ${{ format('{0}/{1}', inputs.path_prefix, needs.audit.outputs.tox_dir) }}
           tox-envs: ${{ inputs.linkcheck_tox_env }}
           python-version: ${{ needs.audit.outputs.docs_python }}
 
