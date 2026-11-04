@@ -200,7 +200,7 @@ on:
         description: 'Version of lftools-uv the ReadTheDocs action runs'
         required: false
         type: string
-        default: '0.5.3'
+        default: '0.8.0'
 
       # --- Runner hardening ---
       harden_runner_egress:
