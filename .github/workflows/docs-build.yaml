@@ -1017,6 +1017,10 @@ jobs:
       #     arguments before any interpreter lookup.
       #   * UV_PYTHON_ARCH: inherited, it makes setup-uv probe uv,
       #     which the line above fails.
+      #   * UV_PYTHON_INSTALL_DIR: setup-uv puts this directory on PATH
+      #     ahead of its own uv before running a bare 'uv python find',
+      #     so an inherited value could start a 'uv' planted there
+      #     instead.
       # No 'python-version' or 'activate-environment': both export
       # interpreter settings to every later step. rtd-build-action
       # runs uv itself and needs only the uv binary on PATH.
@@ -1028,6 +1032,7 @@ jobs:
           UV_NO_PROJECT: '1'
           UV_PYTHON_PREFERENCE: 'lookup-disabled'
           UV_PYTHON_ARCH: ''
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python
         with:
           working-directory: ${{ runner.temp }}
           tool-bin-dir: ${{ runner.temp }}/uv-tool-bin

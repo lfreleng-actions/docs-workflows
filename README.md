@@ -334,8 +334,9 @@ alone, and 3.12.
 
 The `uv-isolation` job plants bait interpreters on `PATH` and in the
 variables uv reads (`UV_PYTHON`, `UV_PYTHON_SEARCH_PATH`, `VIRTUAL_ENV`,
-`CONDA_PREFIX`, `UV_INTERNAL__PARENT_INTERPRETER`) through `GITHUB_ENV`
-and `GITHUB_PATH`, proves each bait starts, then fails if the guarded
+`CONDA_PREFIX`, `UV_INTERNAL__PARENT_INTERPRETER`), and a bait `uv` in
+the directory `UV_PYTHON_INSTALL_DIR` names, through `GITHUB_ENV` and
+`GITHUB_PATH`. It proves each bait starts, then fails if the guarded
 `setup-uv` step the ReadTheDocs job uses starts any of them.
 
 The ReadTheDocs legs stay disabled there. Reaching the API needs a token

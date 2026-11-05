@@ -304,6 +304,7 @@ jobs:
               "UV_NO_PROJECT": "1",
               "UV_PYTHON_PREFERENCE": "lookup-disabled",
               "UV_PYTHON_ARCH": "",
+              "UV_PYTHON_INSTALL_DIR": TEMP + "/uv-python",
           }
           failures = 0
           seen = 0
@@ -351,7 +352,9 @@ jobs:
   # GITHUB_PATH. Plant a bait interpreter on every route uv reads, prove
   # the bait is live, then prove the guarded setup-uv step starts none
   # of it. Each leg covers routes uv cannot take together: UV_PYTHON
-  # takes precedence over the virtual environment variables.
+  # takes precedence over the virtual environment variables. Both legs
+  # plant a bait 'uv' in UV_PYTHON_INSTALL_DIR, which setup-uv puts on
+  # PATH ahead of its own uv, and a bait '.venv' in the workspace.
   uv-isolation:
     name: 'uv Isolation (${{ matrix.route }})'
     runs-on: ubuntu-24.04
@@ -378,21 +381,27 @@ jobs:
           set -euo pipefail
           venv="$GITHUB_WORKSPACE/.venv"
           bin="$venv/bin"
+          install_dir="$GITHUB_WORKSPACE/uv-python-install"
           marker="$RUNNER_TEMP/uv-bait-marker"
-          mkdir -p "$bin" "$venv/conda-meta"
+          mkdir -p "$bin" "$venv/conda-meta" "$install_dir"
           # Each bait records that it started, then fails: uv skips an
           # interpreter that fails, so only the marker proves a start.
-          for name in python python3 python3.13 uv; do
+          bait() {
             printf '#!/bin/sh\necho "%s $*" >> "%s"\nexit 1\n' \
-              "$name" "$marker" > "$bin/$name"
-            chmod +x "$bin/$name"
+              "$1" "$marker" > "$2"
+            chmod +x "$2"
+          }
+          for name in python python3 python3.13 uv; do
+            bait "$name" "$bin/$name"
           done
+          bait 'UV_PYTHON_INSTALL_DIR uv' "$install_dir/uv"
           printf 'home = %s\nversion = 3.13.0\n' "$bin" > "$venv/pyvenv.cfg"
 
           echo "$bin" >> "$GITHUB_PATH"
           {
             echo 'UV_PYTHON_ARCH=x86_64'
             echo 'UV_NO_CACHE=1'
+            echo "UV_PYTHON_INSTALL_DIR=$install_dir"
             case "$ROUTE" in
               uv-python)
                 echo "UV_PYTHON=$bin/python3"
@@ -432,6 +441,12 @@ jobs:
           for var in ("UV_PYTHON_SEARCH_PATH",):
               if env.get(var):
                   routes[var] = os.path.join(env[var], "python3")
+          # setup-uv puts this directory on PATH and runs a bare 'uv'.
+          # Unset, the route stays None and fails below rather than
+          # resolving 'uv' through PATH.
+          install_dir = env.get("UV_PYTHON_INSTALL_DIR")
+          routes["UV_PYTHON_INSTALL_DIR uv"] = (
+              os.path.join(install_dir, "uv") if install_dir else None)
           for var in ("VIRTUAL_ENV", "CONDA_PREFIX"):
               if env.get(var):
                   routes[var] = os.path.join(env[var], "bin", "python3")
@@ -449,7 +464,7 @@ jobs:
               failures += 1
           if os.path.exists(marker):
               os.remove(marker)
-          if len(routes) < 4:
+          if len(routes) < 5:
               print(f"::error::Only {len(routes)} routes planted")
               failures += 1
           sys.exit(1 if failures else 0)
@@ -466,6 +481,7 @@ jobs:
           UV_NO_PROJECT: '1'
           UV_PYTHON_PREFERENCE: 'lookup-disabled'
           UV_PYTHON_ARCH: ''
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python
         with:
           working-directory: ${{ runner.temp }}
           tool-bin-dir: ${{ runner.temp }}/uv-tool-bin
