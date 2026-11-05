@@ -123,15 +123,16 @@ on:
       harden_runner_supplemental_allowlist:
         description: >-
           Extra harden-runner allow-list merged with
-          harden_runner_allowlist, in the same coordinate grammar
+          harden_runner_allowlist, in the same coordinate grammar.
+          Empty adds nothing
         required: false
         type: string
         default: ''
       harden_runner_supplemental_unpinned:
         description: >-
-          Permit harden_runner_supplemental_allowlist to omit '@ref' and
-          follow its repository's default branch, only when that
-          repository belongs to the calling workflow's organisation
+          Let harden_runner_supplemental_allowlist omit '@ref' and
+          follow its default branch; only a list in the caller's own
+          organisation qualifies
         required: false
         type: boolean
         default: false
