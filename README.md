@@ -332,6 +332,12 @@ whose tox environments fail unless they run on the Python the fixture
 declares: 3.10 pinned by `basepython`, 3.10 declared in `.readthedocs.yaml`
 alone, and 3.12.
 
+The `uv-isolation` job plants bait interpreters on `PATH` and in the
+variables uv reads (`UV_PYTHON`, `UV_PYTHON_SEARCH_PATH`, `VIRTUAL_ENV`,
+`CONDA_PREFIX`, `UV_INTERNAL__PARENT_INTERPRETER`) through `GITHUB_ENV`
+and `GITHUB_PATH`, proves each bait starts, then fails if the guarded
+`setup-uv` step the ReadTheDocs job uses starts any of them.
+
 The ReadTheDocs legs stay disabled there. Reaching the API needs a token
 a fork may not hold, and the merge lane would create and build real
 ReadTheDocs projects, which a test run has no business doing.

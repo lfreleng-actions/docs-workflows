@@ -274,56 +274,231 @@ jobs:
           sys.exit(1 if failures else 0)
           UNPINNED
 
-      # setup-uv runs 'uv python find' in its working directory and
-      # executes the interpreter it returns, and reads uv settings from
-      # a uv.toml or pyproject.toml there. Its default is the workspace,
-      # which holds the caller's code wherever a job checks it out.
-      # The ReadTheDocs job, the one setup-uv user, cannot run here
-      # without an RTD_TOKEN, so pin the wiring instead.
-      - name: 'Every setup-uv step works outside the workspace'
+      # setup-uv runs 'uv python find' and executes the interpreter it
+      # returns. The lookup follows its working directory, PATH and uv's
+      # own variables, which an earlier step can set through GITHUB_ENV
+      # or GITHUB_PATH. The ReadTheDocs job, the one reusable setup-uv
+      # user, cannot run here without an RTD_TOKEN, so pin the guarded
+      # settings instead; the uv-isolation job proves they hold. Its
+      # copy of the step is checked too, so it cannot drift from the
+      # one it stands in for.
+      - name: 'Every setup-uv step ignores the job environment'
         shell: bash
         run: |
-          # Every setup-uv step works outside the workspace
+          # Every setup-uv step ignores the job environment
           python3 -I - <<'SETUPUV'
           import sys, yaml
 
           ACTION = "astral-sh/setup-uv@"
           # Split so the runner does not expand it inside this script.
-          WANT_DIR = "$" + "{{ runner.temp }}"
-          WANT_ENV = ("UV_NO_CONFIG", "UV_SYSTEM_PYTHON", "UV_NO_PROJECT")
+          TEMP = "$" + "{{ runner.temp }}"
+          WANT_WITH = {
+              "working-directory": TEMP,
+              "tool-bin-dir": TEMP + "/uv-tool-bin",
+              "enable-cache": "false",
+          }
+          # Each one exports interpreter settings to later steps.
+          BANNED_WITH = ("python-version", "activate-environment")
+          WANT_ENV = {
+              "UV_NO_CONFIG": "1",
+              "UV_NO_PROJECT": "1",
+              "UV_PYTHON_PREFERENCE": "lookup-disabled",
+              "UV_PYTHON_ARCH": "",
+          }
           failures = 0
           seen = 0
 
+          def fail(path, job, message):
+              global failures
+              print(f"::error file={path}::Job '{job}': setup-uv {message}")
+              failures += 1
+
           for path in (".github/workflows/docs-build.yaml",
-                       ".github/workflows/docs-audit.yaml"):
+                       ".github/workflows/docs-audit.yaml",
+                       ".github/workflows/testing.yaml"):
               wf = yaml.safe_load(open(path, encoding="utf-8"))
               for job, spec in wf["jobs"].items():
                   for step in spec.get("steps", []):
                       if ACTION not in str(step.get("uses", "")):
                           continue
                       seen += 1
-                      wd = step.get("with", {}).get("working-directory")
-                      if wd != WANT_DIR:
-                          print(f"::error file={path}::Job '{job}': setup-uv "
-                                f"working-directory is {wd!r}, expected "
-                                f"{WANT_DIR!r}")
-                          failures += 1
-                      env = step.get("env", {})
-                      for key in WANT_ENV:
-                          if str(env.get(key)) != "1":
-                              print(f"::error file={path}::Job '{job}': "
-                                    f"setup-uv env {key} is "
-                                    f"{env.get(key)!r}, expected '1'")
-                              failures += 1
-                      print(f"{path}: {job}: setup-uv in {wd}")
+                      with_ = step.get("with", {}) or {}
+                      for key, want in WANT_WITH.items():
+                          got = with_.get(key)
+                          if str(got).lower() != want:
+                              fail(path, job, f"input {key} is {got!r}, "
+                                   f"expected {want!r}")
+                      for key in BANNED_WITH:
+                          if key in with_:
+                              fail(path, job, f"sets input {key}")
+                      env = step.get("env", {}) or {}
+                      if env != WANT_ENV:
+                          fail(path, job, f"env is {env!r}, expected "
+                               f"{WANT_ENV!r}")
+                      print(f"{path}: {job}: setup-uv checked")
 
           if not seen:
               print("::error::No setup-uv step found; update this check")
               failures += 1
           if not failures:
-              print("Every setup-uv step works outside the workspace \u2705")
+              print("Every setup-uv step ignores the job environment \u2705")
           sys.exit(1 if failures else 0)
           SETUPUV
+
+  # setup-uv executes the interpreter 'uv python find' returns. A called
+  # job inherits nothing from its caller's env, but any earlier step of
+  # the same job can set variables and PATH through GITHUB_ENV and
+  # GITHUB_PATH. Plant a bait interpreter on every route uv reads, prove
+  # the bait is live, then prove the guarded setup-uv step starts none
+  # of it. Each leg covers routes uv cannot take together: UV_PYTHON
+  # takes precedence over the virtual environment variables.
+  uv-isolation:
+    name: 'uv Isolation (${{ matrix.route }})'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        route: ['uv-python', 'environment']
+    steps:
+      - name: 'Harden runner'
+        # yamllint disable-line rule:line-length
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
+        with:
+          egress-policy: 'audit'
+
+      - name: 'Plant bait interpreters'
+        shell: bash
+        env:
+          ROUTE: ${{ matrix.route }}
+        run: |
+          # Plant bait interpreters
+          set -euo pipefail
+          venv="$GITHUB_WORKSPACE/.venv"
+          bin="$venv/bin"
+          marker="$RUNNER_TEMP/uv-bait-marker"
+          mkdir -p "$bin" "$venv/conda-meta"
+          # Each bait records that it started, then fails: uv skips an
+          # interpreter that fails, so only the marker proves a start.
+          for name in python python3 python3.13 uv; do
+            printf '#!/bin/sh\necho "%s $*" >> "%s"\nexit 1\n' \
+              "$name" "$marker" > "$bin/$name"
+            chmod +x "$bin/$name"
+          done
+          printf 'home = %s\nversion = 3.13.0\n' "$bin" > "$venv/pyvenv.cfg"
+
+          echo "$bin" >> "$GITHUB_PATH"
+          {
+            echo 'UV_PYTHON_ARCH=x86_64'
+            echo 'UV_NO_CACHE=1'
+            case "$ROUTE" in
+              uv-python)
+                echo "UV_PYTHON=$bin/python3"
+                echo "UV_PYTHON_SEARCH_PATH=$bin"
+                ;;
+              environment)
+                echo "VIRTUAL_ENV=$venv"
+                echo "CONDA_PREFIX=$venv"
+                echo "UV_INTERNAL__PARENT_INTERPRETER=$bin/python3"
+                ;;
+              *)
+                echo "::error::Unknown route '$ROUTE'" >&2
+                exit 1
+                ;;
+            esac
+          } >> "$GITHUB_ENV"
+
+      # A bait that never starts proves nothing, so start each planted
+      # route directly and require the marker. The interpreter runs by
+      # absolute path: on PATH, python3 is now the bait.
+      - name: 'Control: the bait is live'
+        shell: bash
+        run: |
+          # Control: the bait is live
+          /usr/bin/python3 -I - <<'CONTROL'
+          import os, shutil, subprocess, sys
+
+          marker = os.path.join(os.environ["RUNNER_TEMP"], "uv-bait-marker")
+          env = os.environ
+          routes = {
+              "PATH python3": shutil.which("python3"),
+              "PATH uv": shutil.which("uv"),
+          }
+          for var in ("UV_PYTHON", "UV_INTERNAL__PARENT_INTERPRETER"):
+              if env.get(var):
+                  routes[var] = env[var]
+          for var in ("UV_PYTHON_SEARCH_PATH",):
+              if env.get(var):
+                  routes[var] = os.path.join(env[var], "python3")
+          for var in ("VIRTUAL_ENV", "CONDA_PREFIX"):
+              if env.get(var):
+                  routes[var] = os.path.join(env[var], "bin", "python3")
+
+          failures = 0
+          for route, target in routes.items():
+              if os.path.exists(marker):
+                  os.remove(marker)
+              if target:
+                  subprocess.run([target], check=False)
+              if os.path.exists(marker):
+                  print(f"{route}: {target} started the bait")
+                  continue
+              print(f"::error::{route} ({target}) did not start the bait")
+              failures += 1
+          if os.path.exists(marker):
+              os.remove(marker)
+          if len(routes) < 4:
+              print(f"::error::Only {len(routes)} routes planted")
+              failures += 1
+          sys.exit(1 if failures else 0)
+          CONTROL
+
+      # Keep in step with the 'Install uv' step in docs-build.yaml; the
+      # workflow-shape job checks both carry the same settings.
+      - name: 'Install uv'
+        id: setup-uv
+        # yamllint disable-line rule:line-length
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        env:
+          UV_NO_CONFIG: '1'
+          UV_NO_PROJECT: '1'
+          UV_PYTHON_PREFERENCE: 'lookup-disabled'
+          UV_PYTHON_ARCH: ''
+        with:
+          working-directory: ${{ runner.temp }}
+          tool-bin-dir: ${{ runner.temp }}/uv-tool-bin
+          enable-cache: 'false'
+          ignore-empty-workdir: 'true'
+
+      - name: 'No bait started'
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          UV_PATH: ${{ steps.setup-uv.outputs.uv-path }}
+        run: |
+          # No bait started
+          fail=0
+          marker="$RUNNER_TEMP/uv-bait-marker"
+          case "$UV_PATH" in
+            '' | "$GITHUB_WORKSPACE"/*)
+              echo "::error::setup-uv reported uv at '$UV_PATH'"
+              fail=1
+              ;;
+            *)
+              "$UV_PATH" --version || fail=1
+              ;;
+          esac
+          if [ -e "$marker" ]; then
+            echo '::error::A planted interpreter started:'
+            cat "$marker"
+            fail=1
+          fi
+          if [ "$fail" = '0' ]; then
+            echo 'No planted interpreter started ✅'
+          fi
+          exit "$fail"
 
   # The standalone audit against this repository, which ships a
   # ReadTheDocs configuration and so exercises the discovery path.
@@ -426,6 +601,7 @@ jobs:
       - audit-policy
       - verify
       - workflow-shape
+      - uv-isolation
       - docs-python-basepython
       - docs-python-rtd
       - docs-python-current
@@ -442,6 +618,7 @@ jobs:
           VERIFY: ${{ needs.verify.result }}
           VERIFY_RUNNER: ${{ needs.verify.outputs.runner }}
           CHECKOUTS: ${{ needs.workflow-shape.result }}
+          UV_ISOLATION: ${{ needs.uv-isolation.result }}
           PINNED: ${{ needs.docs-python-basepython.result }}
           # yamllint disable-line rule:line-length
           PINNED_VERSIONS: ${{ needs.docs-python-basepython.outputs.python_versions }}
@@ -459,6 +636,10 @@ jobs:
           fi
           if [ "${CHECKOUTS}" != 'success' ]; then
             echo "::error::Workflow shape leg reported ${CHECKOUTS}"
+            fail=1
+          fi
+          if [ "${UV_ISOLATION}" != 'success' ]; then
+            echo "::error::uv isolation leg reported ${UV_ISOLATION}"
             fail=1
           fi
           if [ "${VERIFY}" != 'success' ]; then
