@@ -213,7 +213,7 @@ on:
         required: false
         type: string
         # yamllint disable-line rule:line-length
-        default: 'lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@6d4a65c5601afd6c2fbe52bda4b0024b132f265d'  # v0.19.0
+        default: 'lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@6e6cab073a93c0d58e4e8846d44e1cbddbac975b'  # v0.21.0
       harden_runner_supplemental_allowlist:
         description: >-
           Extra harden-runner allow-list merged with
@@ -483,7 +483,7 @@ jobs:
     steps:
       - name: 'Load egress allow-list'
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/harden-runner-block-action@2fed66c9c36c4687c31ca349b925b81ec629673f  # v0.15.0
+        uses: lfreleng-actions/harden-runner-block-action@f5a475661142cd2f1611ae6fbf8af2be0f36a9a7  # v0.16.3
         with:
           config: ${{ inputs.harden_runner_allowlist }}
           # yamllint disable-line rule:line-length
@@ -509,7 +509,7 @@ jobs:
       - name: 'Checkout Gerrit change'
         if: inputs.gerrit_refspec != ''
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/checkout-gerrit-change-action@f0dd3d4dd4fceff1f56348152ecf0e040594f16a  # v1.2.1
+        uses: lfreleng-actions/checkout-gerrit-change-action@8721c15dacdd703064df5ade1416f7e5590b65f3  # v1.4.1
         with:
           gerrit-refspec: ${{ inputs.gerrit_refspec }}
           gerrit-project: ${{ inputs.gerrit_project }}
@@ -540,7 +540,7 @@ jobs:
       - name: 'Audit ReadTheDocs configuration'
         id: audit
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-config-audit-action@edfb9d17066b71397c049aef9a5b960aad1ede0a  # v0.2.0
+        uses: lfreleng-actions/rtd-config-audit-action@7759e830dfdf92fcbd9243614244eaf2a3a444ef  # v0.2.1
         continue-on-error: ${{ !inputs.audit_enabled }}
         with:
           path_prefix: ${{ inputs.path_prefix }}
@@ -680,7 +680,7 @@ jobs:
     steps:
       - name: 'Load egress allow-list'
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/harden-runner-block-action@2fed66c9c36c4687c31ca349b925b81ec629673f  # v0.15.0
+        uses: lfreleng-actions/harden-runner-block-action@f5a475661142cd2f1611ae6fbf8af2be0f36a9a7  # v0.16.3
         with:
           config: ${{ inputs.harden_runner_allowlist }}
           # yamllint disable-line rule:line-length
@@ -707,7 +707,7 @@ jobs:
       - name: 'Checkout Gerrit change'
         if: inputs.gerrit_refspec != ''
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/checkout-gerrit-change-action@f0dd3d4dd4fceff1f56348152ecf0e040594f16a  # v1.2.1
+        uses: lfreleng-actions/checkout-gerrit-change-action@8721c15dacdd703064df5ade1416f7e5590b65f3  # v1.4.1
         with:
           gerrit-refspec: ${{ inputs.gerrit_refspec }}
           gerrit-project: ${{ inputs.gerrit_project }}
@@ -807,7 +807,7 @@ jobs:
 
       - name: 'Build documentation'
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/tox-run-action@1d68abdba823c3b723395507fcf780e9dc91c193  # v1.0.0
+        uses: lfreleng-actions/tox-run-action@4d7042009e20f30c7f26a7ba9c8b3985c2f25c45  # v1.0.1
         env:
           # Empty unless the audit job installed a separate tox Python.
           TOX_OVERRIDE: ${{ needs.audit.outputs.tox_override }}
@@ -849,7 +849,7 @@ jobs:
       - name: 'Checkout Gerrit change'
         if: inputs.gerrit_refspec != ''
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/checkout-gerrit-change-action@f0dd3d4dd4fceff1f56348152ecf0e040594f16a  # v1.2.1
+        uses: lfreleng-actions/checkout-gerrit-change-action@8721c15dacdd703064df5ade1416f7e5590b65f3  # v1.4.1
         with:
           gerrit-refspec: ${{ inputs.gerrit_refspec }}
           gerrit-project: ${{ inputs.gerrit_project }}
@@ -911,7 +911,7 @@ jobs:
         id: linkcheck
         continue-on-error: true
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/tox-run-action@1d68abdba823c3b723395507fcf780e9dc91c193  # v1.0.0
+        uses: lfreleng-actions/tox-run-action@4d7042009e20f30c7f26a7ba9c8b3985c2f25c45  # v1.0.1
         env:
           # Empty unless the audit job installed a separate tox Python.
           TOX_OVERRIDE: ${{ needs.audit.outputs.tox_override }}
@@ -978,7 +978,7 @@ jobs:
     steps:
       - name: 'Load egress allow-list'
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/harden-runner-block-action@2fed66c9c36c4687c31ca349b925b81ec629673f  # v0.15.0
+        uses: lfreleng-actions/harden-runner-block-action@f5a475661142cd2f1611ae6fbf8af2be0f36a9a7  # v0.16.3
         with:
           config: ${{ inputs.harden_runner_allowlist }}
           # yamllint disable-line rule:line-length
@@ -1047,7 +1047,7 @@ jobs:
       - name: 'Verify or publish documentation'
         id: readthedocs
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-build-action@8c9734b1bab1d7b21d83ae3d61bb6301ad8fd85c  # v0.1.1
+        uses: lfreleng-actions/rtd-build-action@0da4339d46b739d57ffbaaf5967dee17bfd20cca  # v0.1.4
         with:
           mode: ${{ inputs.mode }}
           rtd_token: ${{ secrets.RTD_TOKEN }}
