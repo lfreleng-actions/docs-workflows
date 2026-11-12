@@ -718,7 +718,7 @@ The harden-runner pattern from `python-workflows` gives the target shape:
 
 ```yaml
 - name: 'Load harden-runner allow-list'
-  uses: lfreleng-actions/harden-runner-block-action@2fed66c9c36c4687c31ca349b925b81ec629673f  # v0.15.0
+  uses: lfreleng-actions/harden-runner-block-action@65ff87957e1cac2de3203a85dbb07c31810321cb  # v0.16.4
   with:
     config: ${{ inputs.harden_runner_allowlist }}
     supplemental_config: ${{ inputs.harden_runner_supplemental_allowlist }}
@@ -728,7 +728,7 @@ The harden-runner pattern from `python-workflows` gives the target shape:
     supplemental_unpinned: ${{ inputs.harden_runner_supplemental_unpinned && 'true' || 'false' }}
     extra_endpoints: ${{ inputs.harden_runner_extra_endpoints }}
 - name: 'Harden runner'
-  uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43  # v2.22.3
+  uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a  # v2.22.4
   with:
     egress-policy: ${{ inputs.harden_runner_egress == 'audit' && 'audit' || 'block' }}
     allowed-endpoints: >
@@ -748,7 +748,7 @@ The allow-list default points at a pinned path in the organisation
 `.github` repository:
 
 ```text
-lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@6d4a65c5601afd6c2fbe52bda4b0024b132f265d
+lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@6e6cab073a93c0d58e4e8846d44e1cbddbac975b
 ```
 
 That file holds 796 lines. A documentation pipeline reaches
