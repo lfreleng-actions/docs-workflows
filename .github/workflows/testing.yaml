@@ -559,41 +559,39 @@ jobs:
       harden_runner_supplemental_unpinned: true
       harden_runner_extra_endpoints: 'github.com:443'
 
-  # tox-run-action needs Python 3.11 or newer to run tox, so a project
-  # documenting on an older Python gets a second, newer one for tox.
   # Each fixture under tests/fixtures/docs-python stands in for a
   # documentation build that fails unless it ran on the declared Python,
   # so a passing leg proves which interpreter built it, not merely that
-  # tox ran. The fixtures declare build.os: ubuntu-24.04, so the build
-  # jobs run there; setup-python has no 3.8 or 3.9 for Ubuntu 26.04.
+  # tox ran. Two legs cover the organisation's floor, Python 3.11, once
+  # pinned through basepython and once declared through
+  # .readthedocs.yaml alone; a third covers a newer Python.
   # linkcheck_advisory is off so a link check on the wrong Python fails
   # the leg too.
   #
-  # Python 3.10 pinned by basepython in [testenv:docs]. Its
-  # docs-linkcheck environment pins nothing, so it also covers the
-  # override.
+  # Python 3.11 pinned by basepython in [testenv:docs]. Its
+  # docs-linkcheck environment pins nothing, so it builds on the
+  # Python the audit resolves from .readthedocs.yaml.
   docs-python-basepython:
-    name: 'Docs Python 3.10 (tox basepython)'
+    name: 'Docs Python 3.11 (tox basepython)'
     permissions:
       contents: read
     uses: $/.github/workflows/docs-build.yaml
     with:
       mode: 'verify'
-      path_prefix: 'tests/fixtures/docs-python/py310-basepython'
+      path_prefix: 'tests/fixtures/docs-python/py311-basepython'
       rtd_enabled: false
       linkcheck_advisory: false
 
-  # Python 3.10 declared only by .readthedocs.yaml. Without the
-  # default_base_python override, both environments would build on
-  # the Python running tox.
+  # Python 3.11 declared only by .readthedocs.yaml, so both
+  # environments build on the Python the audit resolves from it.
   docs-python-rtd:
-    name: 'Docs Python 3.10 (Read the Docs only)'
+    name: 'Docs Python 3.11 (Read the Docs only)'
     permissions:
       contents: read
     uses: $/.github/workflows/docs-build.yaml
     with:
       mode: 'verify'
-      path_prefix: 'tests/fixtures/docs-python/py310-rtd'
+      path_prefix: 'tests/fixtures/docs-python/py311-rtd'
       rtd_enabled: false
       linkcheck_advisory: false
 
@@ -683,16 +681,15 @@ jobs:
             fail=1
           fi
           # Each docs Python leg must pass, which proves its build ran on
-          # the declared Python, and must have set up the expected
-          # versions: the declared one, then 3.13 for tox when the
-          # declared one is older than 3.11.
+          # the declared Python, and must have set up that Python alone:
+          # 3.11 and newer run tox themselves.
           # The versions arrive one per line; join them for comparison.
           joined() {
             printf '%s' "$1" | tr -s '\n' ' ' | sed 's/^ //; s/ $//'
           }
           for leg in \
-            "pinned|${PINNED}|$(joined "${PINNED_VERSIONS}")|3.10 3.13" \
-            "rtd|${RTD}|$(joined "${RTD_VERSIONS}")|3.10 3.13" \
+            "pinned|${PINNED}|$(joined "${PINNED_VERSIONS}")|3.11" \
+            "rtd|${RTD}|$(joined "${RTD_VERSIONS}")|3.11" \
             "current|${CURRENT}|$(joined "${CURRENT_VERSIONS}")|3.12"; do
             IFS='|' read -r name result versions expected <<< "${leg}"
             if [ "${result}" != 'success' ]; then

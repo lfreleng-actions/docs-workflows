@@ -329,7 +329,7 @@ request validates the branch under review.
 
 Three further legs build the fixtures under `tests/fixtures/docs-python`,
 whose tox environments fail unless they run on the Python the fixture
-declares: 3.10 pinned by `basepython`, 3.10 declared in `.readthedocs.yaml`
+declares: 3.11 pinned by `basepython`, 3.11 declared in `.readthedocs.yaml`
 alone, and 3.12.
 
 The `uv-isolation` job plants bait interpreters on `PATH` and in the
