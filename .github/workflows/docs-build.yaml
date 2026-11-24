@@ -197,10 +197,12 @@ on:
         type: string
         default: ''
       lftools_version:
-        description: 'Version of lftools-uv the ReadTheDocs action runs'
+        description: >-
+          Version of lftools-uv the ReadTheDocs action runs; 0.11.0 is
+          the oldest release the action accepts
         required: false
         type: string
-        default: '0.8.0'
+        default: '0.11.0'
 
       # --- Runner hardening ---
       harden_runner_egress:
@@ -1047,7 +1049,7 @@ jobs:
       - name: 'Verify or publish documentation'
         id: readthedocs
         # yamllint disable-line rule:line-length
-        uses: lfreleng-actions/rtd-build-action@0da4339d46b739d57ffbaaf5967dee17bfd20cca  # v0.1.4
+        uses: lfreleng-actions/rtd-build-action@8f9e04c043eefad681f0c6a1c24234ba60dc8696  # v0.2.0
         with:
           mode: ${{ inputs.mode }}
           rtd_token: ${{ secrets.RTD_TOKEN }}
