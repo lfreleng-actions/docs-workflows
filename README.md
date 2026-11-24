@@ -290,6 +290,11 @@ documentation layout.
 
 Secrets: `RTD_TOKEN`, required when `rtd_enabled` stays true.
 
+`lftools_version` names the `lftools-uv` release the ReadTheDocs job
+runs, with every dependency pinned to an exact version. It defaults to
+`0.11.0`, the oldest release `rtd-build-action` accepts; an older value
+fails the ReadTheDocs step before any ReadTheDocs API call.
+
 Outputs: `docs_python`, `python_versions`, `audit_passed`, `runner`,
 `apt_packages`, `documentation_url`, `cancelled_builds`.
 
