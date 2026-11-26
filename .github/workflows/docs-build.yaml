@@ -215,7 +215,7 @@ on:
         required: false
         type: string
         # yamllint disable-line rule:line-length
-        default: 'lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@6e6cab073a93c0d58e4e8846d44e1cbddbac975b'  # v0.21.0
+        default: 'lfreleng-actions//.github/harden-runner/lfreleng-actions/allow_list.txt@39799460cf292525bf1dcc85900cd3a8a827ca68'  # v0.23.1
       harden_runner_supplemental_allowlist:
         description: >-
           Extra harden-runner allow-list merged with
@@ -775,6 +775,13 @@ jobs:
         with:
           python-version: ${{ needs.audit.outputs.python_versions }}
 
+      - name: 'Enforce HTTPS for APT'
+        id: apt-https
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/apt-https-enforce-action@107838afeb79d37aeddb2b7f227f80f51df25180  # v0.0.1
+        with:
+          http_fallback_override: ${{ vars.APT_HTTP_FALLBACK }}
+
       # Sphinx renders inheritance and call graphs through graphviz.
       # Installing it here, once, keeps it out of the tox environments:
       # a project that installs it from inside tox races against itself
@@ -803,7 +810,6 @@ jobs:
               exit 1
             fi
           done
-          sudo apt-get update -q
           sudo DEBIAN_FRONTEND=noninteractive \
             apt-get install -y -q --no-install-recommends -- "${packages[@]}"
 
@@ -882,6 +888,13 @@ jobs:
         with:
           python-version: ${{ needs.audit.outputs.python_versions }}
 
+      - name: 'Enforce HTTPS for APT'
+        id: apt-https
+        # yamllint disable-line rule:line-length
+        uses: lfreleng-actions/apt-https-enforce-action@107838afeb79d37aeddb2b7f227f80f51df25180  # v0.0.1
+        with:
+          http_fallback_override: ${{ vars.APT_HTTP_FALLBACK }}
+
       - name: 'Install graphviz'
         # yamllint disable-line rule:line-length
         uses: tlylt/install-graphviz@b2201200d85f06f0189cb74d9b69208504cf12cd  # v1.0.0
@@ -902,7 +915,6 @@ jobs:
               exit 1
             fi
           done
-          sudo apt-get update -q
           sudo DEBIAN_FRONTEND=noninteractive \
             apt-get install -y -q --no-install-recommends -- "${packages[@]}"
 

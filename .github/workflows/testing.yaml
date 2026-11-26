@@ -182,6 +182,37 @@ jobs:
           sys.exit(1 if failures else 0)
           RUNNER
 
+      # Graphviz uses APT even when the project declares no packages.
+      - name: 'HTTPS runs before APT installs packages'
+        shell: bash
+        run: |
+          # HTTPS runs before APT installs packages
+          python3 - <<'APT'
+          import sys, yaml
+
+          with open(".github/workflows/docs-build.yaml", encoding="utf-8") as f:
+              jobs = yaml.safe_load(f)["jobs"]
+          condition = "needs.audit.outputs.apt_packages != ''"
+          failed = False
+          for job in ("docs", "linkcheck"):
+              steps = jobs[job]["steps"]
+              by_name = {step["name"]: i for i, step in enumerate(steps)}
+              https = by_name.get("Enforce HTTPS for APT", len(steps))
+              graphviz = by_name["Install graphviz"]
+              install = by_name["Install Read the Docs apt packages"]
+              if (https < min(graphviz, install)
+                  and steps[https].get("uses", "").startswith(
+                      "lfreleng-actions/apt-https-enforce-action@"
+                  )
+                  and "if" not in steps[https]
+                  and steps[install].get("if") == condition):
+                  continue
+              print(f"::error::{job} must enforce HTTPS before Graphviz and "
+                    "keep only the Read the Docs install conditional.")
+              failed = True
+          sys.exit(failed)
+          APT
+
       - name: 'One harden-runner step per job'
         shell: bash
         run: |
@@ -584,6 +615,8 @@ jobs:
 
   # Python 3.11 declared only by .readthedocs.yaml, so both
   # environments build on the Python the audit resolves from it.
+  # With no project APT packages, both environments verify that
+  # Graphviz works and APT has no HTTP sources.
   docs-python-rtd:
     name: 'Docs Python 3.11 (Read the Docs only)'
     permissions:
@@ -596,6 +629,7 @@ jobs:
       linkcheck_advisory: false
 
   # Python 3.12 runs tox itself, so the build sets up that one alone.
+  # Both tox environments also run the package declared in this fixture.
   docs-python-current:
     name: 'Docs Python 3.12'
     permissions:
@@ -638,9 +672,12 @@ jobs:
           PINNED_VERSIONS: ${{ needs.docs-python-basepython.outputs.python_versions }}
           RTD: ${{ needs.docs-python-rtd.result }}
           RTD_VERSIONS: ${{ needs.docs-python-rtd.outputs.python_versions }}
+          RTD_APT_PACKAGES: ${{ needs.docs-python-rtd.outputs.apt_packages }}
           CURRENT: ${{ needs.docs-python-current.result }}
           # yamllint disable-line rule:line-length
           CURRENT_VERSIONS: ${{ needs.docs-python-current.outputs.python_versions }}
+          # yamllint disable-line rule:line-length
+          CURRENT_APT_PACKAGES: ${{ needs.docs-python-current.outputs.apt_packages }}
         run: |
           # Check results
           fail=0
@@ -702,6 +739,14 @@ jobs:
               fail=1
             fi
           done
+          if [ -n "${RTD_APT_PACKAGES}" ]; then
+            echo '::error::The Python 3.11 RTD fixture declares APT packages'
+            fail=1
+          fi
+          if [ "${CURRENT_APT_PACKAGES}" != 'hello' ]; then
+            echo '::error::The Python 3.12 fixture did not declare hello to APT'
+            fail=1
+          fi
           if [ "${fail}" = '0' ]; then
             echo 'All legs behaved as expected ✅'
             echo 'All legs behaved as expected ✅' >> "$GITHUB_STEP_SUMMARY"
