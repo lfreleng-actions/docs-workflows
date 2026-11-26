@@ -178,10 +178,13 @@ packages installed.
 random during its migration, so on that label the `runner-os-mismatch`
 warning would come and go between runs.
 
-**Apt packages.** Both build jobs install the project's
-`build.apt_packages` before tox runs, as Read the Docs does. The names
-reach a command run as root, so the jobs check them again after the
-audit has.
+**APT packages.** Both build jobs use `apt-https-enforce-action` to switch
+APT sources to HTTPS and refresh the package indexes before installing
+Graphviz, even when the project declares no `build.apt_packages`.
+The jobs also install any declared packages before tox runs and check
+their names again after the audit because the install runs as root.
+The organisation's `APT_HTTP_FALLBACK` variable is the emergency switch:
+set it to `true` to allow HTTP if the HTTPS refresh fails.
 
 **Not reproduced.** Read the Docs `build.jobs` and `build.commands` do
 not run in the GitHub build. The audit warns when a project declares
